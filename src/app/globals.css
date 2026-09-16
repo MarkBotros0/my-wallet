@@ -1,26 +1,104 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/*
+ * Design system — ported from EGX Analytics (egx-api-fe/tailwind.config.ts)
+ * onto Tailwind v4's CSS-first config. Same five colours, same two fonts, so
+ * the two apps read as siblings.
+ *
+ *   charcoal-dark  #0a0a0f  page background
+ *   charcoal       #12121a  card background
+ *   gain           #00ff88  green — a REAL positive direction in the data
+ *   loss           #ff3355  red   — a REAL negative direction in the data
+ *   accent         #4488ff  blue  — interactive / selected
+ *
+ * gain and loss are never decoration: money in is gain, money out is loss,
+ * and nothing else gets either colour.
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-charcoal-dark: #0a0a0f;
+  --color-charcoal: #12121a;
+  --color-gain: #00ff88;
+  --color-loss: #ff3355;
+  --color-accent: #4488ff;
+
+  --font-sans: var(--font-outfit), "Outfit", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
+@layer base {
+  /* How much room the floating pill nav takes at the bottom of every mobile
+   * page: its 52px height, the 8px it floats clear of the safe area, and
+   * 10px of breathing room above it.
+   *
+   * SPELLED ONCE, deliberately. In EGX this was three hardcoded numbers and
+   * two of them had drifted — one omitted the safe-area term entirely, so on
+   * a phone with a home indicator the nav painted over the bottom of a FAB.
+   * Anything that must clear the nav reads this var. Change the pill's height
+   * or offset in BottomTabBar and change this in the same breath.
+   */
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bottom-nav-clearance: calc(env(safe-area-inset-bottom) + 70px);
+  }
+
+  /* The pill is md:hidden, so above the breakpoint nothing needs clearing. */
+  @media (min-width: 768px) {
+    :root {
+      --bottom-nav-clearance: 0px;
+    }
+  }
+
+  /*
+   * The top nav's footprint, for anything that sticks beneath it.
+   *
+   * `Navbar` is `sticky top-0 z-50` and carries NO md: visibility class, so it
+   * covers the top of the viewport at every screen size. A sticky element at
+   * `top-0` parks itself underneath it and vanishes. Measured 61px (py-3 plus
+   * content) on top of the safe-area inset, which is 0 in a desktop browser
+   * and non-zero on a notched phone — so the inset must be part of the value.
+   */
+  :root {
+    --top-nav-clearance: calc(env(safe-area-inset-top) + 61px);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-charcoal-dark text-white font-sans antialiased;
+    font-size: 14px;
+    overflow-x: hidden;
+  }
+
+  /* Prevent iOS zoom on input focus */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-charcoal-dark;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

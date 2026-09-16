@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<defs><clipPath id="lc"><rect width="512" height="512" rx="110"/></clipPath></defs>
+<rect width="512" height="512" rx="110" fill="#08080d"/>
+<g clip-path="url(#lc)">
+<rect x="150" y="108" width="240" height="72" rx="14" fill="#4488ff" opacity="0.55"/>
+<rect x="150" y="108" width="240" height="72" rx="14" fill="none" stroke="#e4e4e7" stroke-width="2"/>
+<rect x="100" y="148" width="312" height="220" rx="26" fill="#0f0f17" stroke="#e4e4e7" stroke-width="3"/>
+<path d="M300 218h112v80H300a40 40 0 0 1 0-80z" fill="#12121a" stroke="#e4e4e7" stroke-width="3"/>
+<circle cx="330" cy="258" r="12" fill="#4488ff"/>
+<rect x="130" y="194" width="130" height="14" rx="4" fill="#00ff88" opacity="0.35"/>
+<rect x="130" y="220" width="110" height="14" rx="4" fill="#00ff88" opacity="0.50"/>
+<rect x="130" y="246" width="90" height="14" rx="4" fill="#00ff88" opacity="0.65"/>
+<rect x="130" y="272" width="70" height="14" rx="4" fill="#00ff88" opacity="0.80"/>
+<text x="256" y="432" text-anchor="middle" font-family="'Helvetica Neue','Arial',sans-serif" font-size="40" font-weight="300" fill="#e4e4e7" letter-spacing="12">WALLET</text>
+<text x="256" y="458" text-anchor="middle" font-family="'Helvetica Neue','Arial',sans-serif" font-size="14" font-weight="300" fill="#e4e4e7" opacity="0.4" letter-spacing="1">by Mark Botros</text>
+</g>
+</svg>
