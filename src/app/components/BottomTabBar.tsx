@@ -48,20 +48,17 @@ const TABS = [
     ),
   },
   {
-    href: "/calculator",
-    label: "Calculator",
+    href: "/real-estate",
+    label: "Real Estate",
     icon: (
       <svg {...ICON}>
-        <rect x="4" y="2" width="16" height="20" rx="2" />
-        <line x1="8" x2="16" y1="6" y2="6" />
-        <line x1="16" x2="16" y1="14" y2="18" />
-        <path d="M16 10h.01" />
-        <path d="M12 10h.01" />
-        <path d="M8 10h.01" />
-        <path d="M12 14h.01" />
-        <path d="M8 14h.01" />
-        <path d="M12 18h.01" />
-        <path d="M8 18h.01" />
+        <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+        <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+        <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+        <path d="M10 6h4" />
+        <path d="M10 10h4" />
+        <path d="M10 14h4" />
+        <path d="M10 18h4" />
       </svg>
     ),
   },

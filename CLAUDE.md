@@ -11,15 +11,19 @@ for real-estate buying capacity ("what can I actually afford?"). Mobile-first �
 the primary surface is a phone. Multi-user, closed (no public page), with the
 same auth and user-management model as EGX Analytics (`D:\Projects\egx-api`).
 
-**Status:** scaffold only. Auth, user admin, PWA and navigation are built and
-verified; Home / Transactions / Calculator / Reports are `PlaceholderPage`s.
-Feature planning is the next step — nothing about the data model is decided.
+**Status:** auth, user admin, PWA and navigation are built and verified, and
+the **Real Estate** tab holds its first tool, the installment buying-capacity
+calculator (see *Real Estate — buying capacity* below). Home / Transactions /
+Reports are still `PlaceholderPage`s and nothing about the ledger's data model
+is decided — plan before building those.
 
 ## Stack
 
 - **Next.js 16** (App Router, Turbopack, `src/proxy.ts` — NOT `middleware.ts`,
   that name is deprecated in 16), **React 19**, TypeScript, **Tailwind v4**
   (CSS-first config in `globals.css`, no `tailwind.config`).
+- **Vitest** for the pure modules (`npm test`); the `@/*` alias is mirrored in
+  `vitest.config.ts`.
 - **Postgres (Neon)** via `postgres` (postgres.js). No ORM, no migration tool:
   `src/server/db.ts::initDb` runs idempotent DDL on the first request of every
   process. Add tables there with `CREATE TABLE IF NOT EXISTS`, add columns
@@ -36,6 +40,13 @@ Feature planning is the next step — nothing about the data model is decided.
 ```
 src/
   proxy.ts                 # BOTH gates: page redirects + /api/* default-deny
+  lib/capacity/            # PURE maths for the buying-capacity calculator + its tests
+    types.ts               #   the contract: fractions, plain currency numbers
+    rates.ts               #   effective <-> nominal, monthly/daily rates
+    schedule.ts            #   down payment + yearly shares -> fraction due per month
+    simulate.ts            #   the month-by-month engine, validateInputs
+    solve.ts               #   maxFeasiblePrice (binary search), sensitivity
+    fixtures.ts            #   the spec's reference scenario (8,860,000)
   server/                  # server-only — never import from a client component
     db.ts                  # pool singleton, initDb (schema + env seed), getDb()
     token.ts               # JWT sign/verify + PUBLIC_ENDPOINTS (no DB import)
@@ -47,7 +58,7 @@ src/
     globals.css            # the design system (see below) + nav clearance vars
     page.tsx               # Home            (placeholder)
     transactions/          # Transactions    (placeholder)
-    calculator/            # Calculator      (placeholder)
+    real-estate/           # Real Estate — the buying-capacity calculator
     reports/               # Reports         (placeholder)
     admin/                 # Users — admin only
     login/
@@ -55,7 +66,12 @@ src/
     api/users[/[id]][/password]
     lib/api.ts             # fetchJSON (attaches token, 401 → sign out) + users calls
     lib/authStore.ts       # localStorage + presence cookie + useSyncExternalStore store
+    lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
+    lib/capacityFormStore.ts # remembers the form per device (same pattern as authStore)
+    lib/format.ts          # formatMoney / formatCompact / formatPct — spelled once
     components/            # AuthProvider, Navbar, BottomTabBar, admin dialogs, skeletons
+    components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
+                           #   YearTable, SensitivityTable, ui (Card/Field/NumberInput/Segmented)
 public/
   manifest.json, sw.js, icons/wallet-*
 ```
@@ -200,6 +216,84 @@ in `layout.tsx`; `viewportFit: "cover"` so `env(safe-area-inset-*)` is live.
 Nothing is served stale-while-revalidate today — a user's own ledger must
 never paint a stale copy first.
 
+## Real Estate — buying capacity
+
+The one feature so far. Spec: the user's savings sit in a fund; they buy an
+off-plan property on installments, keep the unpaid balance invested, and pay
+from the fund plus extra income. The calculator finds the MAXIMUM price whose
+plan never drops the fund below a safety buffer (and, optionally, ends with a
+chosen share of the starting capital still in the fund).
+
+### The maths is pure and lives in `src/lib/capacity`
+
+No React, no Next, no DB — so it is unit-tested directly (`npm test`, 70
+tests) and could run on the server unchanged. Two conventions, stated in
+`types.ts`, that every function follows:
+
+- **Every rate and share is a FRACTION** (20.33% is `0.2033`, a 10% down
+  payment is `0.10`). The UI multiplies by 100 at the edge and nowhere else.
+- **Amounts are plain numbers** in the user's currency.
+
+Timing rules, all load-bearing and all pinned by tests:
+
+- Month 0: balance = capital − down payment. Each month, in order: growth →
+  income → payments. Growth is `monthlyRate(effective) × (1 − fee)` and is
+  earned on a POSITIVE balance only (no return on money you don't have; the
+  model does not borrow).
+- Yearly installments and yearly income land at the END of the year (month 12,
+  24, …); quarterly at months 3/6/9/12; monthly every month. Extra costs
+  (maintenance, finishing) land at the END of the year they are due.
+- Feasible = down payment ≤ capital AND balance ≥ buffer every month (month 0
+  included) AND final balance ≥ `minKeptShare × capital`.
+- `maxFeasiblePrice` is a binary search on a 1,000 grid — feasibility is
+  monotonic in price, and a test asserts it. `sensitivity` re-solves at
+  −6/−3/0/+3 points, clamped at 0%.
+- **`isFeasible` is `simulate(...).feasible`, deliberately.** A leaner second
+  walk for the solver would be a second place the rules are spelled.
+
+**Reference scenario** (`fixtures.ts`): capital 5,000,000 · 12% · 8 years ·
+10% down · equal yearly · maintenance 8% in year 4 · 300,000 yearly income ·
+buffer 500,000 → **8,860,000 exactly** — every cash flow lands at a year end,
+so the monthly engine agrees with yearly steps to the pound (final balance
+500,991). If this number moves, something in the timing rules moved.
+
+### The UI keeps strings; the engine gets numbers
+
+`lib/capacityForm.ts` holds the form as the user typed it (strings, percents)
+and `parseForm` converts once. That is what lets "1." or "" sit in a field
+without a fight; validation messages come from the same pass and replace the
+results column until the form parses. The form persists per device in
+localStorage (`wallet.capacity.form`) through `capacityFormStore.ts` —
+`useSyncExternalStore`, server snapshot = defaults — and `normalizeForm` fills
+any field a saved copy lacks, so adding a field is safe for existing devices.
+
+**Custom schedules are blocked, not corrected**, until down payment + years
+total exactly 100% (±0.01 pp for float noise); switching to custom prefills
+the equal split so the user edits from a valid plan. The rate can be entered
+as an effective yield OR nominal + compounding, and switching carries the
+value across so the number never jumps.
+
+### The chart is hand-rolled SVG, by the dataviz rules
+
+`BalanceChart`: one series, so no legend; 2px `accent` line with a 10% wash;
+solid hairline gridlines; the buffer is the ONE dashed line (a dash means
+threshold, and it is one); the same path is redrawn in `loss` through a
+clip wherever it dips under the buffer; crosshair + tooltip on hover/touch
+with the value first; keyboard arrows move the crosshair; the year table is
+the table-view twin. It measures its container with a `ResizeObserver` so
+axis text stays 11px on a phone instead of scaling down with a viewBox.
+
+**Colour in the year table follows the money rule:** returns and income are
+`gain` (money in), installments and costs are `loss` (money out); balances
+are positions and stay neutral; a year whose lowest balance breaches the
+buffer is tinted `loss` — a real bad outcome.
+
+**Preview-pane artefact worth knowing:** this page is large enough that React
+streams it in a Suspense boundary (`<div hidden id="S:0">`) and reveals it via
+`requestAnimationFrame`. In a hidden preview pane rAF does not tick, so the
+hidden copy lingers beside the client-rendered one until a paint. It is not a
+bug in the page; a screenshot (a paint) clears it.
+
 ## Lint rules that bite (eslint-config-next 16 / React 19)
 
 - `react-hooks/set-state-in-effect`: no synchronous `setState` in an effect
@@ -215,7 +309,11 @@ never paint a stale copy first.
 npm run dev      # http://localhost:3000 — needs .env (copy .env.example)
 npm run build    # also type-checks
 npm run lint
+npm test         # Vitest — the pure modules (src/lib, src/app/lib)
 ```
+
+`.next/types/validator.ts` is written by `next build` and lists every route;
+after renaming a route, `tsc` fails on it until the next build regenerates it.
 
 First request creates the schema and seeds `AUTH_USERS` / `AUTH_ADMINS`.
 
@@ -226,5 +324,9 @@ several `gh` accounts and the wrong one gets a 403 on `MarkBotros0/my-wallet`.
 
 - Any public surface, self-service password change, role editing in the UI —
   all inherited decisions from EGX.
-- Transactions, categories, accounts, the calculator's model, currency
-  handling — **not designed yet.** Plan before building.
+- Transactions, categories, accounts, currency handling — **not designed
+  yet.** Plan before building.
+- The calculator models no borrowing, no property appreciation, no rent, and
+  a constant return rate; the page says so. A price target with a direction
+  attached is the thing EGX deliberately refuses to show, and this app should
+  keep the same discipline if it ever grows a "projection".
