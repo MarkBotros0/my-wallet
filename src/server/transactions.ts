@@ -1,0 +1,76 @@
+import type { Sql } from "./db";
+import { HttpError } from "./http";
+import type { CategorySuggestions, Transaction, TransactionKind } from "@/lib/ledger";
+
+/**
+ * The one spelling of the ledger's queries. Every function takes the
+ * caller's user id and filters on it — there is no way to read or touch
+ * another user's rows through here.
+ */
+
+interface Row {
+  id: string;
+  kind: string;
+  amount: number;
+  occurred_on: string;
+  category: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function toTransaction(row: Row): Transaction {
+  return {
+    id: row.id,
+    kind: row.kind as TransactionKind,
+    amount: Number(row.amount),
+    occurred_on: row.occurred_on,
+    category: row.category,
+    note: row.note,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+/** A month's entries, newest day first and newest-created first within a day. */
+export async function listForMonth(
+  sql: Sql,
+  userId: string,
+  range: { from: string; to: string },
+): Promise<Transaction[]> {
+  const rows = await sql<Row[]>`
+    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note, created_at, updated_at
+    FROM transactions
+    WHERE user_id = ${userId} AND occurred_on >= ${range.from} AND occurred_on < ${range.to}
+    ORDER BY occurred_on DESC, created_at DESC
+  `;
+  return rows.map(toTransaction);
+}
+
+/** Distinct categories the user has used, per kind, most-used first. */
+export async function categorySuggestions(sql: Sql, userId: string): Promise<CategorySuggestions> {
+  const rows = await sql<{ kind: string; category: string }[]>`
+    SELECT kind, category
+    FROM transactions
+    WHERE user_id = ${userId} AND category <> ''
+    GROUP BY kind, category
+    ORDER BY COUNT(*) DESC, MAX(occurred_on) DESC
+  `;
+  const out: CategorySuggestions = { expense: [], income: [] };
+  for (const r of rows) {
+    if (r.kind === "expense" || r.kind === "income") out[r.kind].push(r.category);
+  }
+  return out;
+}
+
+export async function fetchOwned(sql: Sql, userId: string, id: string): Promise<Transaction> {
+  const rows = await sql<Row[]>`
+    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note, created_at, updated_at
+    FROM transactions
+    WHERE id = ${id} AND user_id = ${userId}
+  `;
+  // Same 404 whether the row belongs to someone else or does not exist —
+  // which of the two is not the caller's business.
+  if (!rows[0]) throw new HttpError(404, "Transaction not found.");
+  return toTransaction(rows[0]);
+}

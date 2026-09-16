@@ -53,6 +53,7 @@ export const DELETE = handle(async (req: Request, { params }: Params) => {
   // EVERY table that carries a user_id belongs in this list. When the
   // transactions / accounts tables arrive, add them here in the same commit.
   await sql.begin(async (tx) => {
+    await tx`DELETE FROM transactions WHERE user_id = ${id}`;
     await tx`DELETE FROM user_settings WHERE user_id = ${id}`;
     await tx`DELETE FROM users WHERE id = ${id}`;
   });

@@ -73,6 +73,24 @@ async function initDb(sql: Sql): Promise<void> {
     )
   `;
 
+  // The ledger. NUMERIC so sums are exact in SQL; read back as ::float8.
+  // occurred_on is ISO text like every other date here — a month is the
+  // half-open string range [YYYY-MM-01, next-01). See src/lib/ledger.
+  await sql`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      kind        TEXT NOT NULL,
+      amount      NUMERIC(14,2) NOT NULL,
+      occurred_on TEXT NOT NULL,
+      category    TEXT NOT NULL DEFAULT '',
+      note        TEXT NOT NULL DEFAULT '',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS transactions_user_day ON transactions (user_id, occurred_on)`;
+
   // Deferred import: auth.ts imports this module, so the seed is pulled in at
   // call time rather than at load time to avoid a cycle.
   const { seedUsersFromEnv } = await import("./auth");

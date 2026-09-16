@@ -1,4 +1,5 @@
 import { getStoredToken, notifyUnauthorized } from "../components/AuthProvider";
+import type { CategorySuggestions, Transaction, TransactionInput } from "@/lib/ledger";
 
 /**
  * Typed fetch wrappers. Every call goes through `fetchJSON`, which attaches
@@ -99,4 +100,39 @@ export async function deleteUser(id: string): Promise<{ deleted: string; usernam
   return fetchJSON(`${BASE}/users/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+// ---- Transactions ledger ----
+
+export interface MonthResponse {
+  month: string;
+  transactions: Transaction[];
+  categories: CategorySuggestions;
+}
+
+export async function fetchMonth(month: string): Promise<MonthResponse> {
+  return fetchJSON<MonthResponse>(`${BASE}/transactions?month=${encodeURIComponent(month)}`);
+}
+
+export async function createTransaction(input: TransactionInput): Promise<{ transaction: Transaction }> {
+  return fetchJSON(`${BASE}/transactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateTransaction(
+  id: string,
+  input: TransactionInput,
+): Promise<{ transaction: Transaction }> {
+  return fetchJSON(`${BASE}/transactions/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteTransaction(id: string): Promise<{ deleted: string }> {
+  return fetchJSON(`${BASE}/transactions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

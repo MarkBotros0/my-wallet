@@ -15,7 +15,7 @@ import {
   type RateEntryMode,
 } from "@/app/lib/capacityForm";
 import { formatPct } from "@/app/lib/format";
-import { Field, NumberInput, Segmented, Select } from "./ui";
+import { Field, NumberInput, Segmented, Select } from "../ui";
 
 const COMPOUNDING_OPTIONS = (Object.keys(COMPOUNDING_LABELS) as CompoundingOption[]).map((v) => ({
   value: v,

@@ -19,6 +19,23 @@ export function formatSignedMoney(amount: number, currency: string): string {
   return `${sign}${formatMoney(Math.abs(amount), currency)}`;
 }
 
+const exact = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+/**
+ * Ledger amounts keep their piastres: 2,450.75 stays "2,450.75", while a
+ * whole 1,300 stays "1,300" rather than "1,300.00". (`formatMoney` rounds to
+ * whole units, which is right for the calculator's millions and wrong here.)
+ */
+export function formatAmount(amount: number, currency: string): string {
+  const text = exact.format(Math.abs(amount) < 0.005 ? 0 : amount);
+  return currency ? `${text} ${currency}` : text;
+}
+
+export function formatSignedAmount(amount: number, currency: string): string {
+  const sign = amount > 0 ? "+" : amount < 0 ? "−" : "";
+  return `${sign}${formatAmount(Math.abs(amount), currency)}`;
+}
+
 /** Axis-friendly: 1,250,000 → "1.25M", 500,000 → "500K", 950 → "950". */
 export function formatCompact(amount: number): string {
   const abs = Math.abs(amount);

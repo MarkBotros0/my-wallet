@@ -16,7 +16,7 @@ import RateInput from "./RateInput";
 import ScheduleEditor from "./ScheduleEditor";
 import SensitivityTable from "./SensitivityTable";
 import YearTable from "./YearTable";
-import { Card, Field, NumberInput, Segmented, Stat, inputClass } from "./ui";
+import { Card, Field, NumberInput, Segmented, Stat, inputClass } from "../ui";
 
 /**
  * Installment buying capacity — the page.

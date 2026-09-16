@@ -2,7 +2,7 @@
 
 import { MAX_PLAN_YEARS, MIN_PLAN_YEARS, type PaymentFrequency } from "@/lib/capacity";
 import { equalYearPcts, parseNumber, resizeYearPcts, type CapacityForm } from "@/app/lib/capacityForm";
-import { Field, NumberInput, Segmented } from "./ui";
+import { Field, NumberInput, Segmented } from "../ui";
 
 /** Whole-percent tolerance for "exactly 100%" as the user types (0.01 pp). */
 const TOTAL_TOLERANCE_PCT = 0.005;

@@ -11,11 +11,12 @@ for real-estate buying capacity ("what can I actually afford?"). Mobile-first �
 the primary surface is a phone. Multi-user, closed (no public page), with the
 same auth and user-management model as EGX Analytics (`D:\Projects\egx-api`).
 
-**Status:** auth, user admin, PWA and navigation are built and verified, and
-the **Real Estate** tab holds its first tool, the installment buying-capacity
-calculator (see *Real Estate — buying capacity* below). Home / Transactions /
-Reports are still `PlaceholderPage`s and nothing about the ledger's data model
-is decided — plan before building those.
+**Status:** auth, user admin, PWA and navigation are built and verified; the
+**Transactions** tab is the expense/income ledger (see *Transactions — the
+ledger*); the **Real Estate** tab holds the installment buying-capacity
+calculator (see *Real Estate — buying capacity*). Home and Reports are still
+`PlaceholderPage`s — the ledger's month endpoint is what should feed them.
+Design records live in `docs/superpowers/specs/`.
 
 ## Stack
 
@@ -40,6 +41,7 @@ is decided — plan before building those.
 ```
 src/
   proxy.ts                 # BOTH gates: page redirects + /api/* default-deny
+  lib/ledger/              # PURE ledger helpers + tests: validate, months, summarize, groupByDay
   lib/capacity/            # PURE maths for the buying-capacity calculator + its tests
     types.ts               #   the contract: fractions, plain currency numbers
     rates.ts               #   effective <-> nominal, monthly/daily rates
@@ -52,26 +54,31 @@ src/
     token.ts               # JWT sign/verify + PUBLIC_ENDPOINTS (no DB import)
     auth.ts                # hash/verify, getCurrentUser, requireAdmin, seedUsersFromEnv
     users.ts               # /api/users validation + the two guards
+    transactions.ts        # the one spelling of the ledger's queries, all user-scoped
     http.ts                # HttpError, handle(), readJson()
   app/
     layout.tsx             # fonts, PWA metadata, Navbar / main / footer / BottomTabBar
     globals.css            # the design system (see below) + nav clearance vars
     page.tsx               # Home            (placeholder)
-    transactions/          # Transactions    (placeholder)
+    transactions/          # Transactions — the ledger
     real-estate/           # Real Estate — the buying-capacity calculator
     reports/               # Reports         (placeholder)
     admin/                 # Users — admin only
     login/
     api/auth/{login,me}    # POST login (the only public route), GET me
     api/users[/[id]][/password]
+    api/transactions[/[id]]  # GET ?month · POST · PUT · DELETE, all user-scoped
     lib/api.ts             # fetchJSON (attaches token, 401 → sign out) + users calls
     lib/authStore.ts       # localStorage + presence cookie + useSyncExternalStore store
     lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
     lib/capacityFormStore.ts # remembers the form per device (same pattern as authStore)
-    lib/format.ts          # formatMoney / formatCompact / formatPct — spelled once
+    lib/format.ts          # formatMoney (whole units) / formatAmount (keeps piastres) / compact / pct
+    lib/numbers.ts         # parseNumber — "5,000,000" → 5000000
     components/            # AuthProvider, Navbar, BottomTabBar, admin dialogs, skeletons
+    components/ui.tsx      # Card, Field, NumberInput, Segmented, Select, Stat — the form kit
+    components/ledger/     # LedgerPage (month view), TransactionForm, TransactionList
     components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
-                           #   YearTable, SensitivityTable, ui (Card/Field/NumberInput/Segmented)
+                           #   YearTable, SensitivityTable
 public/
   manifest.json, sw.js, icons/wallet-*
 ```
@@ -191,8 +198,8 @@ Users: `users(id, username UNIQUE, password_hash, created_at, role, is_active)`.
   admin**.
 - **`DELETE` must remove every row that carries the user's `user_id`**, in one
   `sql.begin` transaction, before the user row. Nothing has an FK to `users`.
-  Today that is `user_settings`; **add every new per-user table to that list
-  in the same commit that creates it.**
+  Today that is `transactions` and `user_settings`; **add every new per-user
+  table to that list in the same commit that creates it.**
 - **Logout wipes Cache Storage** (`clearStoredAuth`). `sw.js` falls back to
   cache offline, so without the wipe a signed-out shared phone could re-serve
   the last screens it saw.
@@ -215,6 +222,43 @@ shell**), registered by `ServiceWorkerRegistrar`. iOS meta via `appleWebApp`
 in `layout.tsx`; `viewportFit: "cover"` so `env(safe-area-inset-*)` is live.
 Nothing is served stale-while-revalidate today — a user's own ledger must
 never paint a stale copy first.
+
+## Transactions — the ledger
+
+One entry = `kind` (expense | income) · `amount` · `occurred_on` · `category`
+· `note`, per user. Spec: `docs/superpowers/specs/2026-09-16-transactions-ledger-design.md`.
+
+**Table:** `transactions(id, user_id, kind, amount NUMERIC(14,2), occurred_on
+TEXT, category, note, created_at, updated_at)` + index `(user_id,
+occurred_on)`. NUMERIC so sums are exact; read back `::float8`. Dates are ISO
+text like everywhere else — a month is the half-open string range
+`[YYYY-MM-01, next-01)` from `lib/ledger/months.ts`.
+
+**Every query is in `server/transactions.ts` and every one filters on the
+caller's `user_id`.** `fetchOwned` 404s for another user's row and for a
+missing one alike — which it is, is not the caller's business. The admin
+delete cascade includes this table.
+
+**One validator, both sides.** `lib/ledger/validate.ts::validateTransactionInput`
+is called by the API route AND by `TransactionForm` on submit, so a value the
+form accepts is a value the server accepts. Amounts snap to cents
+(`0.1 + 0.2` is stored as `0.3`); dates must be real calendar days in
+1970–2100; category ≤ 40, note ≤ 500.
+
+**The list IS the month.** `GET /api/transactions?month=` returns the whole
+month (newest day first, newest-created first within a day) plus the user's
+distinct categories per kind; the page derives totals (`summarize`) and day
+groups (`groupByDay`) from that list with the pure helpers, so nothing on
+screen can disagree with the rows.
+
+UI rules: amounts use `formatAmount` (keeps piastres, drops `.00`), never
+`formatMoney`; income `gain`, expenses `loss`, net by sign; day labels come
+from fixed arrays, not `Intl` (locales differ on "Sep" vs "Sept"). The month
+is `today` (via `useSyncExternalStore`, null on the server) shifted by an
+offset — never a server-rendered `new Date()`, whose day may differ from the
+phone's. While another month loads the previous list stays at 50% opacity.
+The form overlay is `z-[60]` so the `z-50` pill nav cannot cover its Delete
+button or steal a tap.
 
 ## Real Estate — buying capacity
 
@@ -324,7 +368,8 @@ several `gh` accounts and the wrong one gets a 403 on `MarkBotros0/my-wallet`.
 
 - Any public surface, self-service password change, role editing in the UI —
   all inherited decisions from EGX.
-- Transactions, categories, accounts, currency handling — **not designed
+- Accounts, recurring entries, budgets, multi-currency, a categories table
+  (categories are free text with autocomplete from history) — **not designed
   yet.** Plan before building.
 - The calculator models no borrowing, no property appreciation, no rent, and
   a constant return rate; the page says so. A price target with a direction
