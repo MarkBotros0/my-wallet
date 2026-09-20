@@ -17,8 +17,6 @@ export interface TransactionInput {
   amount: number;
   /** 'YYYY-MM-DD'. */
   occurred_on: string;
-  category: string;
-  note: string;
   /** The client this income was collected from; null for unlinked entries and for every expense. */
   client_id: string | null;
   /**
@@ -50,9 +48,6 @@ export interface DayGroup {
   /** Income minus expenses for that day. */
   net: number;
 }
-
-/** Distinct categories the user has used, per kind — for autocomplete. */
-export type CategorySuggestions = Record<TransactionKind, string[]>;
 
 // ---- Clients ----
 

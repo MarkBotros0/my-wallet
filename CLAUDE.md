@@ -267,18 +267,23 @@ never paint a stale copy first.
 
 ## Transactions — the ledger
 
-One entry = `kind` (expense | income) · `amount` · `occurred_on` · `category`
-· `note` · `client_id` · `gods_share`, per user. Spec:
+One entry = `kind` (expense | income) · `amount` · `occurred_on` ·
+`client_id` · `gods_share`, per user. Spec:
 `docs/superpowers/specs/2026-09-16-transactions-ledger-design.md`; the last
-two fields are from `2026-09-20-clients-and-gods-share-design.md`.
+two fields are from `2026-09-20-clients-and-gods-share-design.md`. **There is
+no category and no note** (removed 2026-09-21): every income is salary, so
+the fields said nothing. The 2026-09-16 spec still describes them; a row is
+who it was collected from, when, and how much.
 
 **Table:** `transactions(id, user_id, kind, amount NUMERIC(14,2), occurred_on
-TEXT, category, note, client_id TEXT NULL, gods_share NUMERIC(14,2) DEFAULT 0,
-created_at, updated_at)` + indexes `(user_id, occurred_on)` and `(user_id,
-client_id, occurred_on)`. NUMERIC so sums are exact; read back `::float8`.
-Dates are ISO text like everywhere else — a month is the half-open string
-range `[YYYY-MM-01, next-01)` from `lib/ledger/months.ts`, a year
-`[YYYY-01-01, next-01-01)`.
+TEXT, client_id TEXT NULL, gods_share NUMERIC(14,2) DEFAULT 0, created_at,
+updated_at)` + indexes `(user_id, occurred_on)` and `(user_id, client_id,
+occurred_on)`. Databases from before 2026-09-21 also carry `category` and
+`note` (both `DEFAULT ''`, so inserts that omit them succeed); nothing reads
+or drops them, like `users.role`. NUMERIC so sums are exact; read back
+`::float8`. Dates are ISO text like everywhere else — a month is the
+half-open string range `[YYYY-MM-01, next-01)` from `lib/ledger/months.ts`,
+a year `[YYYY-01-01, next-01-01)`.
 
 **Every query is in `server/transactions.ts` and every one filters on the
 caller's `user_id`.** `fetchOwned` 404s for another user's row and for a
@@ -288,18 +293,20 @@ missing one alike — which it is, is not the caller's business.
 is called by the API route AND by `TransactionForm` on submit, so a value the
 form accepts is a value the server accepts. Amounts snap to cents
 (`0.1 + 0.2` is stored as `0.3`); dates must be real calendar days in
-1970–2100; category ≤ 40, note ≤ 500; `0 ≤ gods_share ≤ amount`; a
-`client_id` on an expense is refused.
+1970–2100; `0 ≤ gods_share ≤ amount`; a `client_id` on an expense is
+refused. A `category` or `note` a stale client still sends is dropped, not
+stored — a test pins it.
 
 **The list IS the month.** `GET /api/transactions?month=` returns the whole
 month (newest day first, newest-created first within a day) plus the user's
-distinct categories per kind and their clients (for the form's select); the
-page derives totals (`summarize`) and day groups (`groupByDay`) from that
-list with the pure helpers, so nothing on screen can disagree with the rows.
+clients (for the form's select); the page derives totals (`summarize`) and
+day groups (`groupByDay`) from that list with the pure helpers, so nothing
+on screen can disagree with the rows. A row is titled by its client's name;
+an entry with no client (every expense, unlinked income) by its kind, muted.
 
 **`TransactionForm` is THE entry form.** The client page and the God's share
 page open the same component with a `prefill` (`kind`, `client_id`,
-`godsShareOn`, `amount`, `category`) rather than growing forms of their own.
+`godsShareOn`, `amount`) rather than growing forms of their own.
 
 UI rules: amounts use `formatAmount` (keeps piastres, drops `.00`), never
 `formatMoney`; income `gain`, expenses `loss`, net by sign; day labels come
@@ -347,7 +354,8 @@ Pages: `/clients` (year bar, one card per client with the year's total from a
 per-client SUM in SQL), `/clients/[id]` (the year's income rows; tiles derive
 from that list — the list IS the year), `/gods-share` (Set aside / Settled /
 Remaining + settlements; "Settle" prefills an expense at the remaining
-amount, category "God's share"; `?settle=1` opens that form on load — Home's
+amount with the share toggle on — that toggle, not a label, is what makes
+it a settlement; `?settle=1` opens that form on load — Home's
 Settle button — and closing it drops the flag). `useToday` (`lib/today.ts`),
 `PeriodBar`, `Tile` and `Fab` are shared — do not copy them into a new page.
 
@@ -580,9 +588,11 @@ several `gh` accounts and the wrong one gets a 403 on `MarkBotros0/my-wallet`.
   admin role — with no admin, a forgotten password is a row edit (see the
   2026-09-20 open-registration spec).
 - Money accounts (bank / cash — distinct from clients), recurring entries,
-  budgets, multi-currency, a categories table (categories are free text with
-  autocomplete from history), a per-user God's share rate, expenses linked to
+  budgets, multi-currency, a per-user God's share rate, expenses linked to
   a client, a Reports page — **not designed yet.** Plan before building.
+- Categories and per-entry notes — **removed 2026-09-21**, not merely
+  missing: every income is salary, so they carried nothing. Do not bring
+  them back for one use case; a client is the "who", the kind is the "what".
 - The calculator models no borrowing, no property appreciation, no rent, and
   a constant return rate; the page says so. A price target with a direction
   attached is the thing EGX deliberately refuses to show, and this app should

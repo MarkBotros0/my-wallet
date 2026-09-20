@@ -1,13 +1,10 @@
 "use client";
 
-import { FormEvent, useId, useState } from "react";
+import { FormEvent, useState } from "react";
 import {
-  MAX_CATEGORY_LENGTH,
-  MAX_NOTE_LENGTH,
   defaultGodsShare,
   toIsoDate,
   validateTransactionInput,
-  type CategorySuggestions,
   type ClientOption,
   type Transaction,
   type TransactionInput,
@@ -22,7 +19,6 @@ export interface TransactionPrefill {
   client_id?: string;
   godsShareOn?: boolean;
   amount?: number;
-  category?: string;
 }
 
 /** God's share is set aside from income by default; an expense pays it out only when asked. */
@@ -47,7 +43,6 @@ export default function TransactionForm({
   existing,
   defaultKind = "expense",
   prefill,
-  categories,
   clients,
   onSave,
   onDelete,
@@ -57,7 +52,6 @@ export default function TransactionForm({
   existing?: Transaction;
   defaultKind?: TransactionKind;
   prefill?: TransactionPrefill;
-  categories: CategorySuggestions;
   clients: ClientOption[];
   onSave: (input: TransactionInput) => Promise<void>;
   onDelete?: () => Promise<void>;
@@ -69,8 +63,6 @@ export default function TransactionForm({
     existing ? String(existing.amount) : prefill?.amount !== undefined ? String(prefill.amount) : "",
   );
   const [date, setDate] = useState(existing?.occurred_on ?? toIsoDate(new Date()));
-  const [category, setCategory] = useState(existing?.category ?? prefill?.category ?? "");
-  const [note, setNote] = useState(existing?.note ?? "");
   const [clientId, setClientId] = useState(existing?.client_id ?? prefill?.client_id ?? "");
   const [shareOn, setShareOn] = useState(
     existing ? existing.gods_share > 0 : (prefill?.godsShareOn ?? defaultShareOn(initialKind)),
@@ -81,7 +73,6 @@ export default function TransactionForm({
   const [shareTouched, setShareTouched] = useState(Boolean(existing && existing.gods_share > 0));
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
-  const listId = useId();
 
   // Switching kind changes what the share toggle means, so it goes back to
   // that kind's default rather than carrying an answer to a different question.
@@ -107,8 +98,6 @@ export default function TransactionForm({
       kind,
       amount: parsedAmount ?? NaN,
       occurred_on: date,
-      category,
-      note,
       client_id: isExpense ? null : clientId || null,
       gods_share: godsShare,
     });
@@ -236,38 +225,6 @@ export default function TransactionForm({
               )}
             </div>
           )}
-
-          <Field label="Category" hint={`Optional. Your ${isExpense ? "expense" : "income"} categories are suggested as you type.`}>
-            <input
-              type="text"
-              list={listId}
-              maxLength={MAX_CATEGORY_LENGTH}
-              autoComplete="off"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder={isExpense ? "Groceries, Rent, Transport…" : "Salary, Freelance, Dividends…"}
-              className={inputClass}
-              aria-label="Category"
-            />
-            <datalist id={listId}>
-              {categories[kind].map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
-
-          <Field label="Note">
-            <input
-              type="text"
-              maxLength={MAX_NOTE_LENGTH}
-              autoComplete="off"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Optional"
-              className={inputClass}
-              aria-label="Note"
-            />
-          </Field>
 
           {errors.length > 0 && (
             <ul className="space-y-1 rounded-lg border border-loss/30 bg-loss/10 px-3 py-2 text-xs text-loss">

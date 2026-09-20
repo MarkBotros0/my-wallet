@@ -21,9 +21,8 @@ export { DEFAULT_GODS_SHARE_RATE, defaultGodsShare, godsShareTotals } from "./go
 export { clientBars, monthlyIncome, type ClientBar, type ClientFilter } from "./summary";
 export {
   MAX_AMOUNT,
-  MAX_CATEGORY_LENGTH,
   MAX_CLIENT_NAME_LENGTH,
-  MAX_NOTE_LENGTH,
+  MAX_CLIENT_NOTE_LENGTH,
   validateClientInput,
   validateTransactionInput,
   type ClientValidationResult,

@@ -1,13 +1,6 @@
 import type { Sql } from "./db";
 import { HttpError } from "./http";
-import type {
-  CategorySuggestions,
-  GodsShareTotals,
-  MonthClientIncome,
-  Transaction,
-  TransactionKind,
-  YearIncome,
-} from "@/lib/ledger";
+import type { GodsShareTotals, MonthClientIncome, Transaction, TransactionKind, YearIncome } from "@/lib/ledger";
 
 /**
  * The one spelling of the ledger's queries. Every function takes the
@@ -20,8 +13,6 @@ interface Row {
   kind: string;
   amount: number;
   occurred_on: string;
-  category: string;
-  note: string;
   client_id: string | null;
   gods_share: number;
   created_at: string;
@@ -34,8 +25,6 @@ function toTransaction(row: Row): Transaction {
     kind: row.kind as TransactionKind,
     amount: Number(row.amount),
     occurred_on: row.occurred_on,
-    category: row.category,
-    note: row.note,
     client_id: row.client_id,
     gods_share: Number(row.gods_share),
     created_at: row.created_at,
@@ -50,7 +39,7 @@ export async function listForMonth(
   range: { from: string; to: string },
 ): Promise<Transaction[]> {
   const rows = await sql<Row[]>`
-    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+    SELECT id, kind, amount::float8 AS amount, occurred_on,
            client_id, gods_share::float8 AS gods_share, created_at, updated_at
     FROM transactions
     WHERE user_id = ${userId} AND occurred_on >= ${range.from} AND occurred_on < ${range.to}
@@ -67,7 +56,7 @@ export async function listForClient(
   range: { from: string; to: string },
 ): Promise<Transaction[]> {
   const rows = await sql<Row[]>`
-    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+    SELECT id, kind, amount::float8 AS amount, occurred_on,
            client_id, gods_share::float8 AS gods_share, created_at, updated_at
     FROM transactions
     WHERE user_id = ${userId} AND client_id = ${clientId} AND kind = 'income'
@@ -75,22 +64,6 @@ export async function listForClient(
     ORDER BY occurred_on DESC, created_at DESC
   `;
   return rows.map(toTransaction);
-}
-
-/** Distinct categories the user has used, per kind, most-used first. */
-export async function categorySuggestions(sql: Sql, userId: string): Promise<CategorySuggestions> {
-  const rows = await sql<{ kind: string; category: string }[]>`
-    SELECT kind, category
-    FROM transactions
-    WHERE user_id = ${userId} AND category <> ''
-    GROUP BY kind, category
-    ORDER BY COUNT(*) DESC, MAX(occurred_on) DESC
-  `;
-  const out: CategorySuggestions = { expense: [], income: [] };
-  for (const r of rows) {
-    if (r.kind === "expense" || r.kind === "income") out[r.kind].push(r.category);
-  }
-  return out;
 }
 
 /**
@@ -141,7 +114,7 @@ export async function incomeByMonthAndClient(
 
 export async function fetchOwned(sql: Sql, userId: string, id: string): Promise<Transaction> {
   const rows = await sql<Row[]>`
-    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+    SELECT id, kind, amount::float8 AS amount, occurred_on,
            client_id, gods_share::float8 AS gods_share, created_at, updated_at
     FROM transactions
     WHERE id = ${id} AND user_id = ${userId}
@@ -175,7 +148,7 @@ export async function godsShareTotals(sql: Sql, userId: string): Promise<GodsSha
 /** Expenses that paid God's share, newest first. */
 export async function listSettlements(sql: Sql, userId: string, limit = 200): Promise<Transaction[]> {
   const rows = await sql<Row[]>`
-    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+    SELECT id, kind, amount::float8 AS amount, occurred_on,
            client_id, gods_share::float8 AS gods_share, created_at, updated_at
     FROM transactions
     WHERE user_id = ${userId} AND kind = 'expense' AND gods_share > 0

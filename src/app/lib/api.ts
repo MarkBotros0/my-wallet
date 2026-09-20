@@ -1,6 +1,5 @@
 import { getStoredToken, notifyUnauthorized } from "../components/AuthProvider";
 import type {
-  CategorySuggestions,
   Client,
   ClientInput,
   ClientOption,
@@ -60,7 +59,7 @@ export async function fetchJSON<T>(
 export interface MonthResponse {
   month: string;
   transactions: Transaction[];
-  categories: CategorySuggestions;
+  /** For the entry form's client select. */
   clients: ClientOption[];
 }
 
@@ -105,7 +104,6 @@ export interface ClientYearResponse {
   year: string;
   transactions: Transaction[];
   /** What the entry form needs, so the client page can add income in place. */
-  categories: CategorySuggestions;
   clients: ClientOption[];
 }
 

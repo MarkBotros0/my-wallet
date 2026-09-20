@@ -25,8 +25,6 @@ const tx = (over: Partial<Transaction> = {}): Transaction => ({
   kind: "expense",
   amount: 100,
   occurred_on: "2026-09-16",
-  category: "Food",
-  note: "",
   client_id: null,
   gods_share: 0,
   created_at: "2026-09-16T10:00:00.000Z",
@@ -35,9 +33,9 @@ const tx = (over: Partial<Transaction> = {}): Transaction => ({
 });
 
 describe("validateTransactionInput", () => {
-  const good = { kind: "expense", amount: 1250.5, occurred_on: "2026-09-16", category: " Food ", note: "lunch " };
+  const good = { kind: "expense", amount: 1250.5, occurred_on: "2026-09-16" };
 
-  it("accepts a well-formed entry and trims the text fields", () => {
+  it("accepts a well-formed entry", () => {
     const r = validateTransactionInput(good);
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -45,11 +43,18 @@ describe("validateTransactionInput", () => {
         kind: "expense",
         amount: 1250.5,
         occurred_on: "2026-09-16",
-        category: "Food",
-        note: "lunch",
         client_id: null,
         gods_share: 0,
       });
+    }
+  });
+
+  it("ignores the category and note a stale client still sends", () => {
+    const r = validateTransactionInput({ ...good, category: "x".repeat(41), note: "x".repeat(501) });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value).not.toHaveProperty("category");
+      expect(r.value).not.toHaveProperty("note");
     }
   });
 
@@ -114,12 +119,6 @@ describe("validateTransactionInput", () => {
     });
   });
 
-  it("treats missing category and note as empty strings", () => {
-    const r = validateTransactionInput({ kind: "income", amount: 5, occurred_on: "2026-01-01" });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toMatchObject({ category: "", note: "" });
-  });
-
   it("rejects an unknown kind", () => {
     const r = validateTransactionInput({ ...good, kind: "transfer" });
     expect(r.ok).toBe(false);
@@ -143,12 +142,6 @@ describe("validateTransactionInput", () => {
       expect(validateTransactionInput({ ...good, occurred_on }).ok, occurred_on).toBe(false);
     }
     expect(validateTransactionInput({ ...good, occurred_on: "2024-02-29" }).ok).toBe(true); // leap day
-  });
-
-  it("caps category at 40 and note at 500 characters", () => {
-    expect(validateTransactionInput({ ...good, category: "x".repeat(41) }).ok).toBe(false);
-    expect(validateTransactionInput({ ...good, note: "x".repeat(501) }).ok).toBe(false);
-    expect(validateTransactionInput({ ...good, category: "x".repeat(40), note: "x".repeat(500) }).ok).toBe(true);
   });
 
   it("rejects anything that is not an object", () => {

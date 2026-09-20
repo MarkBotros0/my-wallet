@@ -76,13 +76,14 @@ async function initDb(sql: Sql): Promise<void> {
       kind        TEXT NOT NULL,
       amount      NUMERIC(14,2) NOT NULL,
       occurred_on TEXT NOT NULL,
-      category    TEXT NOT NULL DEFAULT '',
-      note        TEXT NOT NULL DEFAULT '',
       created_at  TEXT NOT NULL,
       updated_at  TEXT NOT NULL
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS transactions_user_day ON transactions (user_id, occurred_on)`;
+  // Databases from before 2026-09-21 also carry `category` and `note` columns
+  // (every income is salary, so they said nothing). Both default to '', so
+  // an insert that omits them succeeds; nothing reads them, nothing drops them.
 
   // Clients: the people income is collected from. A client is per user and
   // its name is unique per user, case-insensitively — "Acme" and "acme" are

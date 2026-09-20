@@ -8,9 +8,8 @@ import { isIsoDate } from "./months";
  */
 
 export const MAX_AMOUNT = 1e12;
-export const MAX_CATEGORY_LENGTH = 40;
-export const MAX_NOTE_LENGTH = 500;
 export const MAX_CLIENT_NAME_LENGTH = 60;
+export const MAX_CLIENT_NOTE_LENGTH = 500;
 export const MAX_ID_LENGTH = 64;
 export const MIN_YEAR = 1970;
 export const MAX_YEAR = 2100;
@@ -84,16 +83,8 @@ export function validateTransactionInput(raw: unknown): ValidationResult {
     }
   }
 
-  const category = typeof src.category === "string" ? src.category.trim() : "";
-  if (category.length > MAX_CATEGORY_LENGTH) {
-    errors.push(`Category must be at most ${MAX_CATEGORY_LENGTH} characters.`);
-  }
-
-  const note = typeof src.note === "string" ? src.note.trim() : "";
-  if (note.length > MAX_NOTE_LENGTH) {
-    errors.push(`Note must be at most ${MAX_NOTE_LENGTH} characters.`);
-  }
-
+  // Anything else on the object — the category and note of entries before
+  // 2026-09-21, or whatever a stale client sends — is dropped, not stored.
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -102,8 +93,6 @@ export function validateTransactionInput(raw: unknown): ValidationResult {
       kind: kind as TransactionKind,
       amount: cents(amount as number),
       occurred_on: occurredOn as string,
-      category,
-      note,
       client_id: clientId,
       gods_share: cents(godsShare as number),
     },
@@ -129,8 +118,8 @@ export function validateClientInput(raw: unknown): ClientValidationResult {
   }
 
   const note = typeof src.note === "string" ? src.note.trim() : "";
-  if (note.length > MAX_NOTE_LENGTH) {
-    errors.push(`Note must be at most ${MAX_NOTE_LENGTH} characters.`);
+  if (note.length > MAX_CLIENT_NOTE_LENGTH) {
+    errors.push(`Note must be at most ${MAX_CLIENT_NOTE_LENGTH} characters.`);
   }
 
   if (errors.length > 0) return { ok: false, errors };

@@ -19,8 +19,6 @@ import TransactionList from "../ledger/TransactionList";
 
 type Editing = { mode: "settle" } | { mode: "edit"; entry: Transaction } | null;
 
-const SETTLEMENT_CATEGORY = "God's share";
-
 /**
  * God's share, all time: what income has set aside, what has been paid out,
  * and what is still owed. "Settle" is the entry form opened as an expense
@@ -150,9 +148,7 @@ export default function GodsSharePage() {
             kind: "expense",
             godsShareOn: true,
             amount: totals && totals.remaining > 0 ? totals.remaining : undefined,
-            category: SETTLEMENT_CATEGORY,
           }}
-          categories={{ expense: [SETTLEMENT_CATEGORY], income: [] }}
           clients={[]}
           onSave={handleSave}
           onDelete={editing.mode === "edit" ? handleDelete : undefined}

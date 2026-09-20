@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import {
   MAX_CLIENT_NAME_LENGTH,
-  MAX_NOTE_LENGTH,
+  MAX_CLIENT_NOTE_LENGTH,
   validateClientInput,
   type Client,
   type ClientInput,
@@ -105,7 +105,7 @@ export default function ClientForm({
           <Field label="Note">
             <input
               type="text"
-              maxLength={MAX_NOTE_LENGTH}
+              maxLength={MAX_CLIENT_NOTE_LENGTH}
               autoComplete="off"
               value={note}
               onChange={(e) => setNote(e.target.value)}

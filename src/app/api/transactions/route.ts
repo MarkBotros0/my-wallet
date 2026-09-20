@@ -1,12 +1,12 @@
 import { getDb } from "@/server/db";
 import { getCurrentUser, newId, nowIso } from "@/server/auth";
 import { handle, HttpError, json, readJson } from "@/server/http";
-import { categorySuggestions, listForMonth } from "@/server/transactions";
+import { listForMonth } from "@/server/transactions";
 import { clientOptions, fetchOwnedClient } from "@/server/clients";
 import { isMonthKey, monthRange, validateTransactionInput } from "@/lib/ledger";
 
 /**
- *   GET  /api/transactions?month=YYYY-MM  — the month's entries + category suggestions + clients
+ *   GET  /api/transactions?month=YYYY-MM  — the month's entries + the clients for the form
  *   POST /api/transactions                — create one
  *
  * Both scoped to the caller. Validation is src/lib/ledger/validate.ts, the
@@ -20,19 +20,18 @@ export const GET = handle(async (req: Request) => {
     throw new HttpError(400, "month must be YYYY-MM.");
   }
   const sql = await getDb();
-  const [transactions, categories, clients] = await Promise.all([
+  const [transactions, clients] = await Promise.all([
     listForMonth(sql, user.id, monthRange(month)),
-    categorySuggestions(sql, user.id),
     clientOptions(sql, user.id),
   ]);
-  return json({ month, transactions, categories, clients });
+  return json({ month, transactions, clients });
 });
 
 export const POST = handle(async (req: Request) => {
   const user = await getCurrentUser(req);
   const result = validateTransactionInput(await readJson(req));
   if (!result.ok) throw new HttpError(400, result.errors.join(" "));
-  const { kind, amount, occurred_on, category, note, client_id, gods_share } = result.value;
+  const { kind, amount, occurred_on, client_id, gods_share } = result.value;
 
   const sql = await getDb();
   // A client id is only ever the caller's own — another user's 404s here,
@@ -41,13 +40,13 @@ export const POST = handle(async (req: Request) => {
   const id = newId();
   const now = nowIso();
   await sql`
-    INSERT INTO transactions (id, user_id, kind, amount, occurred_on, category, note, client_id, gods_share, created_at, updated_at)
-    VALUES (${id}, ${user.id}, ${kind}, ${amount}, ${occurred_on}, ${category}, ${note}, ${client_id}, ${gods_share}, ${now}, ${now})
+    INSERT INTO transactions (id, user_id, kind, amount, occurred_on, client_id, gods_share, created_at, updated_at)
+    VALUES (${id}, ${user.id}, ${kind}, ${amount}, ${occurred_on}, ${client_id}, ${gods_share}, ${now}, ${now})
   `;
   return json(
     {
       transaction: {
-        id, kind, amount, occurred_on, category, note, client_id, gods_share,
+        id, kind, amount, occurred_on, client_id, gods_share,
         created_at: now, updated_at: now,
       },
     },

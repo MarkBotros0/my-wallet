@@ -153,7 +153,6 @@ export default function LedgerPage() {
         <TransactionForm
           key={editing.mode === "edit" ? editing.entry.id : "create"}
           existing={editing.mode === "edit" ? editing.entry : undefined}
-          categories={shown?.categories ?? { expense: [], income: [] }}
           clients={shown?.clients ?? []}
           onSave={handleSave}
           onDelete={editing.mode === "edit" ? handleDelete : undefined}

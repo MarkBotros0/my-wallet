@@ -178,7 +178,6 @@ export default function ClientPage({ id }: { id: string }) {
           key={editing.mode === "edit" ? editing.entry.id : "create"}
           existing={editing.mode === "edit" ? editing.entry : undefined}
           prefill={{ kind: "income", client_id: id }}
-          categories={shown.categories}
           clients={shown.clients}
           onSave={handleSave}
           onDelete={editing.mode === "edit" ? handleDelete : undefined}

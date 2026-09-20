@@ -21,6 +21,10 @@ function dayLabel(iso: string): string {
  * tapping it opens the edit form. Amounts are signed and coloured by
  * direction, per the design-system rule: green is money in, red is money out.
  *
+ * A row is titled by the client it was collected from; an entry with no
+ * client (every expense, unlinked income) is titled by its kind, muted —
+ * there is no category or note, every income is salary.
+ *
  * God's share on a row is a portion, not a direction, so it stays muted.
  */
 export default function TransactionList({
@@ -48,7 +52,6 @@ export default function TransactionList({
           <ul className="surface overflow-hidden">
             {g.items.map((t) => {
               const clientName = t.client_id ? clientNames?.[t.client_id] : undefined;
-              const detail = [clientName, t.note].filter(Boolean).join(" · ");
               return (
                 <li key={t.id} className="border-b border-white/5 last:border-0">
                   <button
@@ -57,10 +60,9 @@ export default function TransactionList({
                     className="flex min-h-[56px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.03] active:bg-white/5"
                   >
                     <span className="min-w-0">
-                      <span className={`block truncate text-sm ${t.category ? "text-white" : "text-white/40"}`}>
-                        {t.category || "Uncategorised"}
+                      <span className={`block truncate text-sm ${clientName ? "text-white" : "text-white/40"}`}>
+                        {clientName ?? (t.kind === "income" ? "Income" : "Expense")}
                       </span>
-                      {detail && <span className="block truncate text-xs text-white/40">{detail}</span>}
                       {t.gods_share > 0 && (
                         <span className="block truncate text-[11px] text-white/35">
                           {t.kind === "income"

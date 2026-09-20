@@ -2,7 +2,7 @@ import { getDb } from "@/server/db";
 import { getCurrentUser, nowIso } from "@/server/auth";
 import { handle, HttpError, json, readJson } from "@/server/http";
 import { clientOptions, fetchOwnedClient, guardUniqueName } from "@/server/clients";
-import { categorySuggestions, listForClient } from "@/server/transactions";
+import { listForClient } from "@/server/transactions";
 import { isYearKey, validateClientInput, yearRange } from "@/lib/ledger";
 
 /**
@@ -26,12 +26,11 @@ export const GET = handle(async (req: Request, { params }: Params) => {
   }
   const sql = await getDb();
   const client = await fetchOwnedClient(sql, user.id, id);
-  const [transactions, categories, clients] = await Promise.all([
+  const [transactions, clients] = await Promise.all([
     listForClient(sql, user.id, id, yearRange(year)),
-    categorySuggestions(sql, user.id),
     clientOptions(sql, user.id),
   ]);
-  return json({ client, year, transactions, categories, clients });
+  return json({ client, year, transactions, clients });
 });
 
 export const PUT = handle(async (req: Request, { params }: Params) => {
