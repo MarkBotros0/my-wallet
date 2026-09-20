@@ -1,6 +1,13 @@
 import type { Sql } from "./db";
 import { HttpError } from "./http";
-import type { CategorySuggestions, GodsShareTotals, Transaction, TransactionKind, YearIncome } from "@/lib/ledger";
+import type {
+  CategorySuggestions,
+  GodsShareTotals,
+  MonthClientIncome,
+  Transaction,
+  TransactionKind,
+  YearIncome,
+} from "@/lib/ledger";
 
 /**
  * The one spelling of the ledger's queries. Every function takes the
@@ -109,6 +116,27 @@ export async function incomeTotals(
     share: Number(row?.share ?? 0),
     count: Number(row?.count ?? 0),
   };
+}
+
+/**
+ * Income in a date range summed per month and per client — one grouped
+ * query from which Home derives both its charts (lib/ledger/summary.ts).
+ * A month with no income has no row; the helper pads to twelve.
+ */
+export async function incomeByMonthAndClient(
+  sql: Sql,
+  userId: string,
+  range: { from: string; to: string },
+): Promise<MonthClientIncome[]> {
+  const rows = await sql<{ month: string; client_id: string | null; income: number }[]>`
+    SELECT left(occurred_on, 7) AS month, client_id, COALESCE(SUM(amount), 0)::float8 AS income
+    FROM transactions
+    WHERE user_id = ${userId} AND kind = 'income'
+      AND occurred_on >= ${range.from} AND occurred_on < ${range.to}
+    GROUP BY 1, 2
+    ORDER BY 1
+  `;
+  return rows.map((r) => ({ month: r.month, client_id: r.client_id, income: Number(r.income) }));
 }
 
 export async function fetchOwned(sql: Sql, userId: string, id: string): Promise<Transaction> {

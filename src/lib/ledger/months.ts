@@ -62,9 +62,14 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+/** 'September' — for a line that already sits under the year. */
+export function monthName(key: string): string {
+  return MONTH_NAMES[Number(key.slice(5, 7)) - 1];
+}
+
 /** 'September 2026'. Spelled here rather than via Intl so it is identical on server and client. */
 export function monthLabel(key: string): string {
-  return `${MONTH_NAMES[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
+  return `${monthName(key)} ${key.slice(0, 4)}`;
 }
 
 /** A local Date → 'YYYY-MM-DD' in the same local calendar — never via toISOString, which shifts to UTC. */

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { Transaction, TransactionInput } from "@/lib/ledger";
 import {
@@ -25,12 +26,23 @@ const SETTLEMENT_CATEGORY = "God's share";
  * and what is still owed. "Settle" is the entry form opened as an expense
  * that pays from the share — a settlement is a normal expense, so the month
  * it lands in shows the cash leaving.
+ *
+ * `/gods-share?settle=1` (Home's Settle button) opens with the form already
+ * up; closing it drops the flag so a reload does not reopen it.
  */
 export default function GodsSharePage() {
+  const router = useRouter();
+  const openedToSettle = useSearchParams().get("settle") !== null;
+
   const [data, setData] = useState<GodsShareResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
-  const [editing, setEditing] = useState<Editing>(null);
+  const [editing, setEditing] = useState<Editing>(openedToSettle ? { mode: "settle" } : null);
+
+  const close = () => {
+    setEditing(null);
+    if (openedToSettle) router.replace("/gods-share");
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -54,14 +66,14 @@ export default function GodsSharePage() {
   const handleSave = async (input: TransactionInput) => {
     if (editing?.mode === "edit") await updateTransaction(editing.entry.id, input);
     else await createTransaction(input);
-    setEditing(null);
+    close();
     refresh();
   };
 
   const handleDelete = async () => {
     if (editing?.mode !== "edit") return;
     await deleteTransaction(editing.entry.id);
-    setEditing(null);
+    close();
     refresh();
   };
 
@@ -129,7 +141,8 @@ export default function GodsSharePage() {
 
       <Fab onClick={() => setEditing({ mode: "settle" })} ariaLabel="Settle God's share" />
 
-      {editing && (
+      {/* Not before the totals: the form takes its prefilled amount once, on mount. */}
+      {editing && totals && (
         <TransactionForm
           key={editing.mode === "edit" ? editing.entry.id : "settle"}
           existing={editing.mode === "edit" ? editing.entry : undefined}
@@ -143,7 +156,7 @@ export default function GodsSharePage() {
           clients={[]}
           onSave={handleSave}
           onDelete={editing.mode === "edit" ? handleDelete : undefined}
-          onClose={() => setEditing(null)}
+          onClose={close}
         />
       )}
     </div>

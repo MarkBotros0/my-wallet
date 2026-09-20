@@ -16,9 +16,9 @@ is EGX Analytics' (`D:\Projects\egx-api`), the admin role is not.
 ledger*); the **Clients** tab tracks what each client paid this year and
 income carries a **God's share** that is settled from `/gods-share` (see
 *Clients & God's share*); the **Real Estate** tab holds the installment
-buying-capacity calculator (see *Real Estate — buying capacity*). Home shows
-this month and God's share owed. Design records live in
-`docs/superpowers/specs/`.
+buying-capacity calculator (see *Real Estate — buying capacity*). **Home** is
+the earnings dashboard (see *Home — earnings and God's share*). Design
+records live in `docs/superpowers/specs/`.
 
 ## Stack
 
@@ -44,7 +44,8 @@ this month and God's share owed. Design records live in
 src/
   proxy.ts                 # BOTH gates: page redirects + /api/* default-deny
   lib/ledger/              # PURE ledger helpers + tests: validate, months/years, summarize,
-                           #   groupByDay, godsShare (default share, totals)
+                           #   groupByDay, godsShare (default share, totals),
+                           #   summary (Home's charts from one grouped series)
   lib/account/             # PURE credentials validator + test (register route AND form)
   lib/capacity/            # PURE maths for the buying-capacity calculator + its tests
     types.ts               #   the contract: fractions, plain currency numbers
@@ -64,7 +65,7 @@ src/
   app/
     layout.tsx             # fonts, PWA metadata, Navbar / main / footer / BottomTabBar
     globals.css            # the design system (see below) + nav clearance vars
-    page.tsx               # Home — this month + God's share owed
+    page.tsx               # Home — earned this year, God's share owed, two charts
     transactions/          # Transactions — the ledger
     clients/[/[id]]        # Clients — per-client yearly income
     gods-share/            # God's share — set aside / settled / remaining, Settle
@@ -74,7 +75,9 @@ src/
     api/transactions[/[id]]  # GET ?month · POST · PUT · DELETE, all user-scoped
     api/clients[/[id]]     # GET ?year · POST · PUT · DELETE (unlinks) · GET {id}?year
     api/gods-share         # GET totals + settlements
+    api/summary            # GET ?month — everything Home shows, in one response
     lib/api.ts             # fetchJSON (attaches token, 401 → sign out) + every typed call
+    lib/ticks.ts           # niceTicks — the one axis-tick scale every chart uses
     lib/authStore.ts       # localStorage + presence cookie + useSyncExternalStore store
     lib/today.ts           # useToday — the phone's date, null on the server
     lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
@@ -87,7 +90,7 @@ src/
                            #   TransactionList, PeriodBar (‹ month/year ›), Tile
     components/clients/    # ClientsPage, ClientPage, ClientForm
     components/godsShare/  # GodsSharePage
-    components/home/       # HomePage
+    components/home/       # HomePage + ClientBars (by client), MonthlyChart (over the year)
     components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
                            #   YearTable, SensitivityTable, formErrors (per-field errors),
                            #   LiveResult (the phone's sticky answer strip)
@@ -323,13 +326,49 @@ Pages: `/clients` (year bar, one card per client with the year's total from a
 per-client SUM in SQL), `/clients/[id]` (the year's income rows; tiles derive
 from that list — the list IS the year), `/gods-share` (Set aside / Settled /
 Remaining + settlements; "Settle" prefills an expense at the remaining
-amount, category "God's share"), Home (this month + share owed, each a link).
-`useToday` (`lib/today.ts`), `PeriodBar`, `Tile` and `Fab` are shared — do
-not copy them into a new page.
+amount, category "God's share"; `?settle=1` opens that form on load — Home's
+Settle button — and closing it drops the flag). `useToday` (`lib/today.ts`),
+`PeriodBar`, `Tile` and `Fab` are shared — do not copy them into a new page.
 
 **Colour follows the money rule here too:** a client's year total is `gain`
 (money in), a settlement row is `loss` (money out), the share on an income
 row and every tracker tile are positions and stay muted/white.
+
+## Home — earnings and God's share
+
+Home answers the two questions the app exists for: **how much have I
+earned** and **where does God's share stand**. Spending never appears on it.
+It used to show the month's net (income − expenses), which went red the
+moment a year's share was settled in one month — a settlement is money
+given, not money lost, so Home no longer has a number that can go negative
+(reversed 2026-09-21).
+
+- **One request:** `GET /api/summary?month=YYYY-MM` (the phone's month, from
+  `useToday`) returns the month's and the year's income (`incomeTotals`), the
+  share totals all time (`godsShareTotals` — the same three numbers as the
+  tracker, so they cannot disagree with it), the year's per-client totals
+  (`listClientsForYear`) and `incomeByMonthAndClient`: income summed per
+  `(month, client_id)`. **Both charts derive from that one series** with the
+  pure helpers in `lib/ledger/summary.ts` — `clientBars` (sum over months,
+  biggest first, plus a "No client" bar so the bars add up to the headline)
+  and `monthlyIncome(series, year, filter)` (sum over clients, or one, or the
+  unlinked) — so the charts, the headline and the Clients page agree.
+- **Cards:** "Earned in {year}" (`gain`, money in; this month beneath) is
+  the link to Clients. "God's share" (Owed headline, Set aside · Settled
+  beneath, all positions so white) is a stretched link to the tracker with
+  a Settle button above it in the stacking order that opens
+  `/gods-share?settle=1`.
+- **Charts, by the dataviz rules:** one series each, so no legend and one
+  hue — `gain`, because it is money in. `ClientBars` is a list with bars
+  (value beside the name, so it is its own table view; each row a 44px
+  link to the client). `MonthlyChart` is hand-rolled SVG measured with a
+  ResizeObserver like `BalanceChart`: columns ≤ 24px with a 4px rounded
+  cap and a square foot, the biggest month the ONE direct label, hairline
+  solid gridlines, ticks from `lib/ticks.ts::niceTicks`, the whole month
+  band as the hit target, value-first tooltip, arrow keys, an empty state
+  instead of a bare axis. The client filter scopes only the monthly chart,
+  so it sits in that card's header — a filtered by-client chart would be
+  one bar.
 
 ## Real Estate — buying capacity
 

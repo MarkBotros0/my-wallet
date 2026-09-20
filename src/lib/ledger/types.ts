@@ -95,6 +95,33 @@ export interface YearIncome {
   count: number;
 }
 
+/**
+ * Income summed per month AND per client — the one series both Home charts
+ * are derived from: by client (sum over months) and over time (sum over
+ * clients, or one client). `client_id` null is income with no client.
+ */
+export interface MonthClientIncome {
+  /** 'YYYY-MM'. */
+  month: string;
+  client_id: string | null;
+  income: number;
+}
+
+/** What Home shows, in one response. */
+export interface HomeSummary {
+  /** The phone's month, 'YYYY-MM'. */
+  month: string;
+  /** Its year, the frame of everything but the share totals. */
+  year: string;
+  monthIncome: YearIncome;
+  yearIncome: YearIncome;
+  /** All time — the same three numbers as the tracker page. */
+  share: GodsShareTotals;
+  /** The year's per-client totals, biggest first. */
+  clients: ClientSummary[];
+  series: MonthClientIncome[];
+}
+
 // ---- God's share ----
 
 export interface GodsShareTotals {

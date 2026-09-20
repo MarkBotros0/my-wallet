@@ -9,6 +9,7 @@ export {
   isYearKey,
   monthKeyOf,
   monthLabel,
+  monthName,
   monthRange,
   shiftMonth,
   toIsoDate,
@@ -17,6 +18,7 @@ export {
 } from "./months";
 export { groupByDay, summarize } from "./summarize";
 export { DEFAULT_GODS_SHARE_RATE, defaultGodsShare, godsShareTotals } from "./godsShare";
+export { clientBars, monthlyIncome, type ClientBar, type ClientFilter } from "./summary";
 export {
   MAX_AMOUNT,
   MAX_CATEGORY_LENGTH,

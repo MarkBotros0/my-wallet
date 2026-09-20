@@ -8,6 +8,7 @@ import {
   isYearKey,
   monthKeyOf,
   monthLabel,
+  monthName,
   monthRange,
   shiftMonth,
   summarize,
@@ -180,6 +181,7 @@ describe("month helpers", () => {
     expect(monthKeyOf("2026-09-16")).toBe("2026-09");
     expect(monthLabel("2026-09")).toBe("September 2026");
     expect(monthLabel("2027-01")).toBe("January 2027");
+    expect(monthName("2026-09")).toBe("September");
   });
 
   it("formats a local Date as YYYY-MM-DD without timezone drift", () => {

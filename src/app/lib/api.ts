@@ -6,6 +6,7 @@ import type {
   ClientOption,
   ClientSummary,
   GodsShareTotals,
+  HomeSummary,
   Transaction,
   TransactionInput,
   YearIncome,
@@ -147,4 +148,11 @@ export interface GodsShareResponse {
 
 export async function fetchGodsShare(): Promise<GodsShareResponse> {
   return fetchJSON<GodsShareResponse>(`${BASE}/gods-share`);
+}
+
+// ---- Home ----
+
+/** Everything Home shows, framed by the phone's month. */
+export async function fetchSummary(month: string): Promise<HomeSummary> {
+  return fetchJSON<HomeSummary>(`${BASE}/summary?month=${encodeURIComponent(month)}`);
 }
