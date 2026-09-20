@@ -6,15 +6,17 @@ import { yearOf, type ClientInput } from "@/lib/ledger";
 import { createClient, fetchClients, type ClientsResponse } from "@/app/lib/api";
 import { formatAmount } from "@/app/lib/format";
 import { useToday } from "@/app/lib/today";
-import { TableSkeleton } from "../LoadingSkeleton";
+import { CardSkeleton, TableSkeleton } from "../LoadingSkeleton";
 import Fab from "../Fab";
 import PeriodBar from "../ledger/PeriodBar";
+import Tile from "../ledger/Tile";
 import ClientForm from "./ClientForm";
 
 /**
- * Every client with what they paid in one calendar year. The totals come
- * from the server (one SUM per client — the page never fetches every row of
- * every client); the client's own page derives its numbers from its list.
+ * The year's income, then every client with what they paid in it. The totals
+ * come from the server (one SUM over the year, one per client — the page
+ * never fetches every row of every client); the client's own page derives
+ * its numbers from its list.
  */
 export default function ClientsPage() {
   const today = useToday();
@@ -53,6 +55,11 @@ export default function ClientsPage() {
 
   const stale = data !== null && year !== null && data.year !== year;
   const shown = data;
+  // Income with no client counts towards the year but appears on no card —
+  // say so, or the tile looks like it disagrees with the list beneath it.
+  const unlinked = shown
+    ? Math.round((shown.totals.income - shown.clients.reduce((sum, c) => sum + c.year_total, 0)) * 100) / 100
+    : 0;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 md:py-8">
@@ -77,42 +84,70 @@ export default function ClientsPage() {
       )}
 
       {!shown ? (
-        <TableSkeleton rows={4} />
-      ) : shown.clients.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-white/10 bg-charcoal p-8 text-center">
-          <p className="text-sm text-white/50">No clients yet.</p>
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="mt-4 min-h-[44px] rounded-lg border border-white/10 px-4 text-sm text-white/70 transition-colors hover:bg-white/5"
-          >
-            Add the first client
-          </button>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="col-span-2 sm:col-span-1">
+              <CardSkeleton />
+            </div>
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
+          <TableSkeleton rows={4} />
         </div>
       ) : (
-        <ul className={`space-y-3 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
-          {shown.clients.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/clients/${encodeURIComponent(c.id)}`}
-                className="flex min-h-[64px] items-center justify-between gap-3 rounded-xl border border-white/10 bg-charcoal px-4 py-3 transition-colors hover:bg-white/[0.03] active:bg-white/5"
+        <div className={`space-y-5 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
+          {/* Income is money in; the share is a portion of it and the count a number — neither has a direction. */}
+          {/* A year's income runs to 12 characters; on a phone it takes the whole row so the tile never truncates it. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="col-span-2 sm:col-span-1">
+              <Tile
+                label={`Income ${shown.year}`}
+                value={formatAmount(shown.totals.income, "")}
+                className={shown.totals.income > 0 ? "text-gain" : "text-white/50"}
+                sub={unlinked > 0 ? `${formatAmount(unlinked, "")} with no client` : "EGP"}
+              />
+            </div>
+            <Tile label="God's share" value={formatAmount(shown.totals.share, "")} className="text-white" />
+            <Tile label="Entries" value={String(shown.totals.count)} className="text-white" />
+          </div>
+
+          {shown.clients.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 bg-charcoal p-8 text-center">
+              <p className="text-sm text-white/50">No clients yet.</p>
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="mt-4 min-h-[44px] rounded-lg border border-white/10 px-4 text-sm text-white/70 transition-colors hover:bg-white/5"
               >
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-white">{c.name}</span>
-                  <span className="block truncate text-xs text-white/40">
-                    {c.year_count === 0
-                      ? `Nothing in ${shown.year}`
-                      : `God's share ${formatAmount(c.year_share, "")} · ${c.year_count} ${c.year_count === 1 ? "entry" : "entries"}`}
-                  </span>
-                </span>
-                {/* Money in, so gain — unless there is none, which is not a direction. */}
-                <span className={`shrink-0 font-mono text-sm tabular-nums ${c.year_total > 0 ? "text-gain" : "text-white/40"}`}>
-                  {formatAmount(c.year_total, "")}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                Add the first client
+              </button>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {shown.clients.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/clients/${encodeURIComponent(c.id)}`}
+                    className="flex min-h-[64px] items-center justify-between gap-3 rounded-xl border border-white/10 bg-charcoal px-4 py-3 transition-colors hover:bg-white/[0.03] active:bg-white/5"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-white">{c.name}</span>
+                      <span className="block truncate text-xs text-white/40">
+                        {c.year_count === 0
+                          ? `Nothing in ${shown.year}`
+                          : `God's share ${formatAmount(c.year_share, "")} · ${c.year_count} ${c.year_count === 1 ? "entry" : "entries"}`}
+                      </span>
+                    </span>
+                    {/* Money in, so gain — unless there is none, which is not a direction. */}
+                    <span className={`shrink-0 font-mono text-sm tabular-nums ${c.year_total > 0 ? "text-gain" : "text-white/40"}`}>
+                      {formatAmount(c.year_total, "")}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       <Fab onClick={() => setCreating(true)} ariaLabel="Add client" />

@@ -8,6 +8,7 @@ import type {
   GodsShareTotals,
   Transaction,
   TransactionInput,
+  YearIncome,
 } from "@/lib/ledger";
 
 /**
@@ -94,6 +95,8 @@ export async function deleteTransaction(id: string): Promise<{ deleted: string }
 export interface ClientsResponse {
   year: string;
   clients: ClientSummary[];
+  /** The year's income over the whole ledger, client-linked or not. */
+  totals: YearIncome;
 }
 
 export interface ClientYearResponse {

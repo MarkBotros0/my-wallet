@@ -1,6 +1,6 @@
 import type { Sql } from "./db";
 import { HttpError } from "./http";
-import type { CategorySuggestions, GodsShareTotals, Transaction, TransactionKind } from "@/lib/ledger";
+import type { CategorySuggestions, GodsShareTotals, Transaction, TransactionKind, YearIncome } from "@/lib/ledger";
 
 /**
  * The one spelling of the ledger's queries. Every function takes the
@@ -84,6 +84,31 @@ export async function categorySuggestions(sql: Sql, userId: string): Promise<Cat
     if (r.kind === "expense" || r.kind === "income") out[r.kind].push(r.category);
   }
   return out;
+}
+
+/**
+ * All income in a date range (a calendar year, in practice), whether or not
+ * it is linked to a client. The Clients page heads its per-client cards with
+ * this, so income with no client still counts towards the year.
+ */
+export async function incomeTotals(
+  sql: Sql,
+  userId: string,
+  range: { from: string; to: string },
+): Promise<YearIncome> {
+  const [row] = await sql<{ income: number; share: number; count: number }[]>`
+    SELECT COALESCE(SUM(amount), 0)::float8     AS income,
+           COALESCE(SUM(gods_share), 0)::float8 AS share,
+           COUNT(*)::int                        AS count
+    FROM transactions
+    WHERE user_id = ${userId} AND kind = 'income'
+      AND occurred_on >= ${range.from} AND occurred_on < ${range.to}
+  `;
+  return {
+    income: Number(row?.income ?? 0),
+    share: Number(row?.share ?? 0),
+    count: Number(row?.count ?? 0),
+  };
 }
 
 export async function fetchOwned(sql: Sql, userId: string, id: string): Promise<Transaction> {

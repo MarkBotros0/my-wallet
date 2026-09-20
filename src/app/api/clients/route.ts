@@ -2,10 +2,12 @@ import { getDb } from "@/server/db";
 import { getCurrentUser, newId, nowIso } from "@/server/auth";
 import { handle, HttpError, json, readJson } from "@/server/http";
 import { guardUniqueName, listClientsForYear } from "@/server/clients";
+import { incomeTotals } from "@/server/transactions";
 import { isYearKey, validateClientInput, yearRange } from "@/lib/ledger";
 
 /**
- *   GET  /api/clients?year=YYYY  — every client with that year's income total
+ *   GET  /api/clients?year=YYYY  — every client with that year's income total,
+ *                                  plus the year's income over the whole ledger
  *   POST /api/clients            — create one
  *
  * Both scoped to the caller.
@@ -18,8 +20,12 @@ export const GET = handle(async (req: Request) => {
     throw new HttpError(400, "year must be YYYY.");
   }
   const sql = await getDb();
-  const clients = await listClientsForYear(sql, user.id, yearRange(year));
-  return json({ year, clients });
+  const range = yearRange(year);
+  const [clients, totals] = await Promise.all([
+    listClientsForYear(sql, user.id, range),
+    incomeTotals(sql, user.id, range),
+  ]);
+  return json({ year, clients, totals });
 });
 
 export const POST = handle(async (req: Request) => {

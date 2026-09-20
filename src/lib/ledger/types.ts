@@ -82,6 +82,19 @@ export interface ClientSummary extends Client {
   year_count: number;
 }
 
+/**
+ * Every income entry in one calendar year — linked to a client or not — so
+ * the Clients page can head its cards with the year's total. The same three
+ * numbers as a ClientSummary, over the whole ledger.
+ */
+export interface YearIncome {
+  /** Σ amount over income entries. */
+  income: number;
+  /** Σ gods_share over income entries. */
+  share: number;
+  count: number;
+}
+
 // ---- God's share ----
 
 export interface GodsShareTotals {
