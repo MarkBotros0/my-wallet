@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   maxFeasiblePrice,
   sensitivity,
@@ -13,7 +13,7 @@ import { useCapacityForm } from "@/app/lib/capacityFormStore";
 import { formatMoney, formatPct } from "@/app/lib/format";
 import BalanceChart from "./BalanceChart";
 import { CalcField, FormErrorsProvider, fieldId, focusField, useFormErrors, useVisibleErrors } from "./formErrors";
-import LiveResult from "./LiveResult";
+import LiveResult, { DesktopResultBar, useScrolledPast } from "./LiveResult";
 import RateInput from "./RateInput";
 import ScheduleEditor from "./ScheduleEditor";
 import SensitivityTable from "./SensitivityTable";
@@ -31,11 +31,18 @@ import { Card, Field, FieldError, Segmented, Stat, useFieldState } from "../ui";
  * and listed above the results — each item jumps to the field — while the
  * last result that DID compute stays on screen, dimmed, so clearing a field
  * to retype it does not blank the page. On a phone a sticky strip under the
- * nav carries the answer (or the error count) down the form.
+ * nav carries the answer (or the error count) down the form; on a desktop
+ * a condensed bar does the same once the headline card has scrolled away.
+ *
+ * From `xl:` the results use the width: the headline full-width, then
+ * "test a price" beside the sensitivity table, then the chart and the year
+ * table full-width again.
  */
 export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
   const [detailsFor, setDetailsFor] = useState<"max" | "test">("max");
+  const headlineRef = useRef<HTMLDivElement | null>(null);
+  const pastHeadline = useScrolledPast(headlineRef);
 
   const parsed = useMemo(() => parseForm(form), [form]);
   const { inputs, errors, byField, testPrice } = parsed;
@@ -64,6 +71,8 @@ export default function CapacityCalculator() {
   // falls back to the maximum without a stale toggle.
   const showing: SimulationResult | null =
     detailsFor === "test" && tested ? tested : (capacity?.simulation ?? null);
+  // The sensitivity rows only mean something when there IS a maximum to move.
+  const hasSensitivity = rows !== null && capacity?.maxPrice !== null;
 
   const resetAll = () => {
     if (!confirm("Reset every input to the defaults? What you typed here will be lost.")) return;
@@ -73,7 +82,7 @@ export default function CapacityCalculator() {
 
   return (
     <FormErrorsProvider value={visible}>
-      <div className="mx-auto max-w-6xl px-4 py-6 md:py-8">
+      <div className="mx-auto max-w-6xl px-4 py-6 md:py-8 xl:max-w-7xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Real Estate</h1>
@@ -209,39 +218,58 @@ export default function CapacityCalculator() {
           </div>
 
           {/* ----------------------------------------------------------- results */}
-          <div
-            id="results"
-            className="mt-6 space-y-4 lg:mt-0"
-            style={{ scrollMarginTop: "calc(var(--top-nav-clearance) + 12px)" }}
-          >
-            {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} />}
+          <div id="results" className="mt-6 lg:mt-0" style={{ scrollMarginTop: "calc(var(--top-nav-clearance) + 12px)" }}>
+            <DesktopResultBar
+              visible={pastHeadline}
+              sim={capacity?.simulation ?? null}
+              maxPrice={capacity ? capacity.maxPrice : undefined}
+              currency={currency}
+              errors={errors}
+            />
+
+            {/* The headline block: what the condensed bar stands in for once it has scrolled away. */}
+            <div ref={headlineRef} className="space-y-4">
+              {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} />}
+              {shown && (
+                <div className={`transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
+                  {capacity && capacity.maxPrice === null ? (
+                    <Card className="animate-rise">
+                      <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
+                      <p className="mt-2 text-sm leading-relaxed text-white/60">
+                        {shown.startingCapital < shown.safetyBuffer
+                          ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
+                              shown.safetyBuffer,
+                            )}), so no property — not even a free one — keeps the fund above it.`
+                          : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
+                        Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
+                      </p>
+                    </Card>
+                  ) : (
+                    capacity?.simulation && (
+                      <Hero
+                        sim={capacity.simulation}
+                        capital={shown.startingCapital}
+                        buffer={shown.safetyBuffer}
+                        currency={currency}
+                      />
+                    )
+                  )}
+                </div>
+              )}
+            </div>
 
             {shown && (
-              <div className={`space-y-4 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
-                {capacity && capacity.maxPrice === null ? (
-                  <Card>
-                    <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
-                    <p className="mt-2 text-sm leading-relaxed text-white/60">
-                      {shown.startingCapital < shown.safetyBuffer
-                        ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
-                            shown.safetyBuffer,
-                          )}), so no property — not even a free one — keeps the fund above it.`
-                        : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
-                      Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
-                    </p>
-                  </Card>
-                ) : (
-                  capacity?.simulation && (
-                    <Hero
-                      sim={capacity.simulation}
-                      capital={shown.startingCapital}
-                      buffer={shown.safetyBuffer}
-                      currency={currency}
-                    />
-                  )
-                )}
-
-                <Card title="Test a specific price">
+              <div
+                className={`mt-4 space-y-4 transition-opacity xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0 ${
+                  stale ? "opacity-50" : ""
+                }`}
+                aria-busy={stale}
+              >
+                <Card
+                  title="Test a specific price"
+                  className={`animate-rise xl:order-1 ${hasSensitivity ? "" : "xl:col-span-2"}`}
+                  style={{ animationDelay: "40ms" }}
+                >
                   <CalcField
                     field="testPrice"
                     label="Price to test"
@@ -270,27 +298,33 @@ export default function CapacityCalculator() {
                   )}
                 </Card>
 
+                {hasSensitivity && rows && (
+                  <Card title="If the fund's return changes" className="animate-rise xl:order-2" style={{ animationDelay: "80ms" }}>
+                    <SensitivityTable rows={rows} currency={currency} />
+                  </Card>
+                )}
+
                 {showing && (
                   <>
                     <Card
                       title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+                      className="animate-rise xl:order-3 xl:col-span-2"
+                      style={{ animationDelay: "120ms" }}
                     >
                       <BalanceChart inputs={shown} sim={showing} currency={currency} />
                     </Card>
 
-                    <Card title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}>
+                    <Card
+                      title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+                      className="animate-rise xl:order-4 xl:col-span-2"
+                      style={{ animationDelay: "160ms" }}
+                    >
                       <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
                     </Card>
                   </>
                 )}
 
-                {rows && capacity?.maxPrice !== null && (
-                  <Card title="If the fund's return changes">
-                    <SensitivityTable rows={rows} currency={currency} />
-                  </Card>
-                )}
-
-                <p className="px-1 text-xs text-white/40">
+                <p className="px-1 text-xs text-white/40 xl:order-5 xl:col-span-2">
                   Estimates assume a constant return rate. Fund returns vary and are not guaranteed.
                 </p>
               </div>
@@ -335,7 +369,12 @@ function ErrorSummary({ errors, hasResult }: { errors: FormError[]; hasResult: b
   );
 }
 
-/** The headline: the maximum price, big, with the figures that make it up. */
+/**
+ * The headline: the maximum price, big, with the figures that make it up.
+ * The figure grows with the screen (60px on a desktop); the six tiles beneath
+ * it become one row at `xl:`. The tiles drop the currency code — the figure
+ * states it once — so a wide number never wraps inside a narrow tile.
+ */
 function Hero({
   sim,
   capital,
@@ -348,36 +387,34 @@ function Hero({
   currency: string;
 }) {
   const money = (n: number) => formatMoney(n, currency);
+  const figure = (n: number) => formatMoney(n, "");
   return (
-    <Card>
+    <Card className="animate-rise">
       <div className="text-xs font-medium text-white/50">Maximum buying capacity</div>
       {/* The hero figure: same sans as everything else, proportional digits. */}
-      <div className="mt-1 text-4xl font-bold leading-none tracking-tight text-white md:text-5xl">
-        {formatMoney(sim.price, "")}
-        <span className="ml-2 text-base font-medium text-white/40">{currency}</span>
+      <div className="mt-1 text-4xl font-bold leading-none tracking-tight text-white md:text-5xl lg:text-6xl">
+        {figure(sim.price)}
+        <span className="ml-2 text-base font-medium text-white/40 lg:text-lg">{currency}</span>
       </div>
       <p className="mt-2 text-xs leading-snug text-white/40">
         The most expensive property this plan carries without the fund dropping below {money(buffer)}.
       </p>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Down payment" value={money(sim.downPayment)} />
-        <Stat label="Total installments" value={money(sim.totalInstallments)} />
-        <Stat label="Extra costs" value={money(sim.totalExtraCosts)} />
-        <Stat label="Final balance" value={money(sim.finalBalance)} sub={`end of year ${sim.years.length}`} />
-      </div>
-
-      {/* Where the money ended up: into the property vs still in the fund. */}
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      {/* What it costs, what is left, and where the money ended up. All in {currency}. */}
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <Stat label="Down payment" value={figure(sim.downPayment)} />
+        <Stat label="Total installments" value={figure(sim.totalInstallments)} />
+        <Stat label="Extra costs" value={figure(sim.totalExtraCosts)} />
+        <Stat label="Final balance" value={figure(sim.finalBalance)} sub={`end of year ${sim.years.length}`} />
         <Stat
           label="Paid into the property"
-          value={money(sim.paidIntoProperty)}
-          sub={`${formatPct(sim.paidIntoProperty / capital, 0)} of your starting capital`}
+          value={figure(sim.paidIntoProperty)}
+          sub={`${formatPct(sim.paidIntoProperty / capital, 0)} of your capital`}
         />
         <Stat
           label="Kept in the fund"
-          value={money(sim.keptInFund)}
-          sub={`${formatPct(sim.keptShareOfCapital, 0)} of your starting capital`}
+          value={figure(sim.keptInFund)}
+          sub={`${formatPct(sim.keptShareOfCapital, 0)} of your capital`}
         />
       </div>
     </Card>

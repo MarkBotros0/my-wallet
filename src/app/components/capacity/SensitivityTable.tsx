@@ -34,9 +34,10 @@ export default function SensitivityTable({
             return (
               <tr
                 key={r.delta}
-                className={`border-b border-white/5 last:border-0 ${isCurrent ? "bg-accent/10" : ""}`}
+                className={`border-b border-white/5 last:border-0 ${isCurrent ? "bg-accent/[0.06]" : "hover:bg-white/[0.02]"}`}
               >
-                <td className="px-3 py-2">
+                {/* The current row is marked by an accent hairline on its edge, not by a wash alone. */}
+                <td className={`px-3 py-2 ${isCurrent ? "shadow-[inset_2px_0_0_var(--color-accent)]" : ""}`}>
                   <span className={isCurrent ? "text-accent" : "text-white/80"}>{formatPct(r.effectiveAnnualRate)}</span>
                   <span className="ml-2 font-sans text-[10px] text-white/40">
                     {isCurrent ? "current" : `${r.delta > 0 ? "+" : "−"}${Math.abs(r.delta * 100).toFixed(0)} pts`}

@@ -94,7 +94,8 @@ src/
     components/home/       # HomePage + ClientBars (by client), MonthlyChart (over the year)
     components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
                            #   YearTable, SensitivityTable, formErrors (per-field errors),
-                           #   LiveResult (the phone's sticky answer strip)
+                           #   LiveResult (the phone's sticky answer strip + the desktop's
+                           #   condensed bar, DesktopResultBar)
 public/
   manifest.json, sw.js, icons/wallet-*
 ```
@@ -483,6 +484,21 @@ value across so the number never jumps.
   `--top-nav-clearance`, `lg:hidden`) and shows the maximum as it moves, or
   "N inputs need fixing" — tapping scrolls to `#results` (which carries a
   `scroll-margin-top` for the nav) or to the first bad field.
+- **On a desktop `DesktopResultBar` does the same job** (`hidden lg:block`,
+  zero height in flow at the top of the results column): a glass bar that
+  fades in only once the headline block — error summary + hero — has
+  scrolled under the nav (`useScrolledPast`, an IntersectionObserver whose
+  root inset is the measured height of `nav.sticky`, never a restated 61).
+  Maximum · ends with · % kept, or the error count with a "Fix" that
+  focuses the first bad field; "Summary" scrolls back to `#results`.
+- **From `xl:` the results use the width** (`xl:max-w-7xl`): the headline
+  block full-width above a two-column grid — "Test a specific price"
+  beside "If the fund's return changes" (the test card spans both when
+  nothing is affordable), then the chart and the year table full-width.
+  The DOM order is the phone order; `xl:order-*` places them. Cards arrive
+  with `animate-rise` 40ms apart; the hero figure is 60px at `lg:` and its
+  six tiles are one row at `xl:`, without the currency code (the figure
+  states it once).
 - Money inputs use `NumberInput group`: on blur a parsed value is rewritten
   with thousands separators; `parseNumber` strips them again.
 
