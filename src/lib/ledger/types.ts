@@ -19,6 +19,14 @@ export interface TransactionInput {
   occurred_on: string;
   category: string;
   note: string;
+  /** The client this income was collected from; null for unlinked entries and for every expense. */
+  client_id: string | null;
+  /**
+   * How much of this entry is God's share money, 0 ≤ x ≤ amount. On an
+   * income it is the amount set aside (accrued); on an expense it is the
+   * amount paid out of the share (settled). One column, one meaning.
+   */
+  gods_share: number;
 }
 
 /** A stored entry. `user_id` is deliberately absent: every read is already scoped. */
@@ -45,3 +53,42 @@ export interface DayGroup {
 
 /** Distinct categories the user has used, per kind — for autocomplete. */
 export type CategorySuggestions = Record<TransactionKind, string[]>;
+
+// ---- Clients ----
+
+/** What the client sends to create or rename a client. */
+export interface ClientInput {
+  name: string;
+  note: string;
+}
+
+/** A stored client. `user_id` is deliberately absent: every read is already scoped. */
+export interface Client extends ClientInput {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Just enough of a client for the form's select. */
+export interface ClientOption {
+  id: string;
+  name: string;
+}
+
+/** A client with what it paid in one calendar year. */
+export interface ClientSummary extends Client {
+  year_total: number;
+  year_share: number;
+  year_count: number;
+}
+
+// ---- God's share ----
+
+export interface GodsShareTotals {
+  /** Σ gods_share over income entries. */
+  accrued: number;
+  /** Σ gods_share over expense entries. */
+  settled: number;
+  /** accrued − settled. */
+  remaining: number;
+}

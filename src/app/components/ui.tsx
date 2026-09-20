@@ -163,6 +163,37 @@ export function Select<T extends string>({
   );
 }
 
+/**
+ * A checkbox as a full-width row: label on the left, a 44px tap target, the
+ * accent when on. For an on/off that changes what the form asks next.
+ */
+export function CheckRow({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  hint?: ReactNode;
+}) {
+  return (
+    <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+      <span className="min-w-0">
+        <span className="block text-sm text-white">{label}</span>
+        {hint && <span className="block text-[11px] text-white/40">{hint}</span>}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-5 w-5 shrink-0 accent-accent"
+      />
+    </label>
+  );
+}
+
 /** A labelled figure — the stat-tile shape used under the hero number. */
 export function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (

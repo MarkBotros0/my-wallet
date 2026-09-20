@@ -1,5 +1,5 @@
 // Bump this version to invalidate the cached app shell on next load.
-const CACHE_NAME = "wallet-v1";
+const CACHE_NAME = "wallet-v2";
 const SHELL_ASSETS = ["/", "/icons/wallet-logo-192.png", "/icons/wallet-logo-512.png"];
 
 self.addEventListener("install", (event) => {

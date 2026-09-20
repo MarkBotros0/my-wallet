@@ -8,15 +8,17 @@ Read this first. It is short on purpose; grow it as features land.
 
 A personal money app for **Mark**: track expenses and income, and a calculator
 for real-estate buying capacity ("what can I actually afford?"). Mobile-first —
-the primary surface is a phone. Multi-user, closed (no public page), with the
-same auth and user-management model as EGX Analytics (`D:\Projects\egx-api`).
+the primary surface is a phone. Multi-user with open sign-up; the token model
+is EGX Analytics' (`D:\Projects\egx-api`), the admin role is not.
 
-**Status:** auth, user admin, PWA and navigation are built and verified; the
+**Status:** auth, sign-up, PWA and navigation are built and verified; the
 **Transactions** tab is the expense/income ledger (see *Transactions — the
-ledger*); the **Real Estate** tab holds the installment buying-capacity
-calculator (see *Real Estate — buying capacity*). Home and Reports are still
-`PlaceholderPage`s — the ledger's month endpoint is what should feed them.
-Design records live in `docs/superpowers/specs/`.
+ledger*); the **Clients** tab tracks what each client paid this year and
+income carries a **God's share** that is settled from `/gods-share` (see
+*Clients & God's share*); the **Real Estate** tab holds the installment
+buying-capacity calculator (see *Real Estate — buying capacity*). Home shows
+this month and God's share owed. Design records live in
+`docs/superpowers/specs/`.
 
 ## Stack
 
@@ -30,8 +32,8 @@ Design records live in `docs/superpowers/specs/`.
   process. Add tables there with `CREATE TABLE IF NOT EXISTS`, add columns
   with `ADD COLUMN IF NOT EXISTS`, never rewrite what exists.
 - **Auth:** `bcryptjs` over a SHA-256 pre-hash, `jose` HS256 JWT (30 days).
-- Deploys to **Vercel**. Env vars: `DATABASE_URL`, `AUTH_SECRET`,
-  `AUTH_USERS`, `AUTH_ADMINS`, `NEXT_PUBLIC_APP_URL` (see `.env.example`).
+- Deploys to **Vercel**. Env vars: `DATABASE_URL`, `AUTH_SECRET` — that is all
+  (see `.env.example`).
 
 > `AGENTS.md` (maintained by `next dev`) points at `node_modules/next/dist/docs/`.
 > Read the relevant page there before using a Next API you have not used in 16.
@@ -41,7 +43,9 @@ Design records live in `docs/superpowers/specs/`.
 ```
 src/
   proxy.ts                 # BOTH gates: page redirects + /api/* default-deny
-  lib/ledger/              # PURE ledger helpers + tests: validate, months, summarize, groupByDay
+  lib/ledger/              # PURE ledger helpers + tests: validate, months/years, summarize,
+                           #   groupByDay, godsShare (default share, totals)
+  lib/account/             # PURE credentials validator + test (register route AND form)
   lib/capacity/            # PURE maths for the buying-capacity calculator + its tests
     types.ts               #   the contract: fractions, plain currency numbers
     rates.ts               #   effective <-> nominal, monthly/daily rates
@@ -50,33 +54,40 @@ src/
     solve.ts               #   maxFeasiblePrice (binary search), sensitivity
     fixtures.ts            #   the spec's reference scenario (8,860,000)
   server/                  # server-only — never import from a client component
-    db.ts                  # pool singleton, initDb (schema + env seed), getDb()
+    db.ts                  # pool singleton, initDb (schema), getDb()
     token.ts               # JWT sign/verify + PUBLIC_ENDPOINTS (no DB import)
-    auth.ts                # hash/verify, getCurrentUser, requireAdmin, seedUsersFromEnv
-    users.ts               # /api/users validation + the two guards
+    auth.ts                # hash/verify, getCurrentUser, nowIso, newId
     transactions.ts        # the one spelling of the ledger's queries, all user-scoped
+                           #   (month list, client-year list, God's share sums, settlements)
+    clients.ts             # the one spelling of the clients queries, all user-scoped
     http.ts                # HttpError, handle(), readJson()
   app/
     layout.tsx             # fonts, PWA metadata, Navbar / main / footer / BottomTabBar
     globals.css            # the design system (see below) + nav clearance vars
-    page.tsx               # Home            (placeholder)
+    page.tsx               # Home — this month + God's share owed
     transactions/          # Transactions — the ledger
+    clients/[/[id]]        # Clients — per-client yearly income
+    gods-share/            # God's share — set aside / settled / remaining, Settle
     real-estate/           # Real Estate — the buying-capacity calculator
-    reports/               # Reports         (placeholder)
-    admin/                 # Users — admin only
-    login/
-    api/auth/{login,me}    # POST login (the only public route), GET me
-    api/users[/[id]][/password]
+    login/, register/      # the two signed-out pages, both on AuthCard
+    api/auth/{login,register,me}  # POST login + register are the public routes, GET me
     api/transactions[/[id]]  # GET ?month · POST · PUT · DELETE, all user-scoped
-    lib/api.ts             # fetchJSON (attaches token, 401 → sign out) + users calls
+    api/clients[/[id]]     # GET ?year · POST · PUT · DELETE (unlinks) · GET {id}?year
+    api/gods-share         # GET totals + settlements
+    lib/api.ts             # fetchJSON (attaches token, 401 → sign out) + every typed call
     lib/authStore.ts       # localStorage + presence cookie + useSyncExternalStore store
+    lib/today.ts           # useToday — the phone's date, null on the server
     lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
     lib/capacityFormStore.ts # remembers the form per device (same pattern as authStore)
     lib/format.ts          # formatMoney (whole units) / formatAmount (keeps piastres) / compact / pct
     lib/numbers.ts         # parseNumber — "5,000,000" → 5000000
-    components/            # AuthProvider, Navbar, BottomTabBar, admin dialogs, skeletons
-    components/ui.tsx      # Card, Field, NumberInput, Segmented, Select, Stat — the form kit
-    components/ledger/     # LedgerPage (month view), TransactionForm, TransactionList
+    components/            # AuthProvider, AuthCard, Navbar, BottomTabBar, Fab, skeletons
+    components/ui.tsx      # Card, Field, NumberInput, Segmented, Select, CheckRow, Stat — the form kit
+    components/ledger/     # LedgerPage (month view), TransactionForm (THE entry form),
+                           #   TransactionList, PeriodBar (‹ month/year ›), Tile
+    components/clients/    # ClientsPage, ClientPage, ClientForm
+    components/godsShare/  # GodsSharePage
+    components/home/       # HomePage
     components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
                            #   YearTable, SensitivityTable
 public/
@@ -126,7 +137,7 @@ breath.
 - `md:` (768px) is the breakpoint. Bottom pill on mobile (`md:hidden`), link
   row in the Navbar on desktop.
 - Tables → cards on mobile (`space-y-3 md:hidden` + `hidden md:block`).
-- Forms → full-screen modal on mobile, centred card on desktop (`CreateUserModal`).
+- Forms → full-screen modal on mobile, centred card on desktop (`TransactionForm`).
 - Touch targets `min-h-[44px]`. Navbar action buttons are deliberately 36px
   (`h-9`) — the nav row is 61px and `--top-nav-clearance` IS that number.
 - Money inputs will use `step="any"`, never `step={0.01}` — EGP amounts
@@ -141,8 +152,9 @@ breath.
 `BottomTabBar`: a centred capsule `h-[52px] w-full max-w-[320px] rounded-full
 bg-charcoal/85 backdrop-blur-xl`, 8px above the safe area. The `<nav>` is
 `pointer-events-none` with `pointer-events-auto` on the pill, so the gutters
-either side stay tappable. Four `flex-1` tabs, each a 44px target with a 21px
-icon and 10px label. Keep it at four — a fifth squeezes the labels.
+either side stay tappable. Four `flex-1` tabs (Home · Transactions · Clients ·
+Real Estate), each a 44px target with a 21px icon and 10px label. Keep it at
+four — a fifth squeezes the labels; God's share is reached from Home, not a tab.
 
 **The active highlight is ONE `<span>` that slides** (`transform 340ms
 cubic-bezier(0.34, 1.4, 0.5, 1)`), measured from the anchors' `offsetLeft` /
@@ -166,49 +178,54 @@ Verify the slide with `el.getAnimations()`, not by sampling frames —
 `requestAnimationFrame` and CSS timelines do not advance in a hidden preview
 pane, so a frame sample "proves" nothing moved.
 
-## Auth and user management — the EGX model
+## Auth — open sign-up, no admin
 
-**The app is CLOSED.** No landing page, no registration, no anonymous API.
+**Anyone with the URL can create an account** (`/register`). This reversed
+the closed, admin-managed model on 2026-09-20 — spec:
+`docs/superpowers/specs/2026-09-20-open-registration-design.md`. Every ledger
+row is user-scoped, so a stranger gets an empty ledger of their own and
+nothing else. There is no admin role, no Users page, no e-mail and no
+password recovery: a forgotten password is a row edit in the database.
 
 Two gates, both in `src/proxy.ts`:
 
 1. **Pages** redirect to `/login?next=…` unless the `wallet.auth.present`
-   cookie is set. UX only — the cookie is set by client JS and unsigned.
+   cookie is set; `/login` and `/register` are the only public pages. UX
+   only — the cookie is set by client JS and unsigned.
 2. **`/api/*` is default-deny.** Every request needs a Bearer token with a
    valid signature unless the exact `"METHOD /path"` is in `PUBLIC_ENDPOINTS`
-   (`server/token.ts`) — today only `POST /api/auth/login`. A route added
-   tomorrow 401s until someone deliberately opens it. Route handlers then call
-   `getCurrentUser(req)` / `requireAdmin(req)`, which **re-read role and
-   `is_active` from the DB on every request** — a 30-day token must not let a
-   disabled user keep working for a month.
+   (`server/token.ts`) — today `POST /api/auth/login` and
+   `POST /api/auth/register`. A route added tomorrow 401s until someone
+   deliberately opens it. Route handlers then call `getCurrentUser(req)`,
+   which **re-reads the user row on every request** — a 30-day token must
+   not outlive a row that was deleted by hand.
 
-Users: `users(id, username UNIQUE, password_hash, created_at, role, is_active)`.
+Users: `users(id, username UNIQUE, password_hash, created_at)`. Databases
+from before 2026-09-20 also carry `role` and `is_active` columns from the
+admin model; they have defaults, nothing reads them, nothing drops them.
+Nothing deletes a user through the app, so there is no cascade to maintain;
+`transactions`, `clients` and `user_settings` still key on `user_id`.
 
-- **Admin status comes ONLY from `AUTH_ADMINS`**, re-applied on every boot. No
-  API route writes `role`; the admin UI has no role picker. Demotion of
-  unlisted users happens only when the var is non-empty.
-- **`AUTH_USERS=a:pw,b:pw` only CREATES missing users.** It never re-hashes,
-  so an admin's password reset survives a cold start.
-- `/api/users` (admin only): list, create, `POST {id}/password` reset,
-  `PATCH {id}` enable/disable, `DELETE {id}`. A generated password (16 chars,
-  no `0O1lI`) is returned **once** — `PasswordRevealDialog` says so and copies
-  `Link / Username / Password` as one block (plus "Copy password only" for
-  WhatsApp).
-- Guards: you cannot disable or delete **yourself** or the **last active
-  admin**.
-- **`DELETE` must remove every row that carries the user's `user_id`**, in one
-  `sql.begin` transaction, before the user row. Nothing has an FK to `users`.
-  Today that is `transactions` and `user_settings`; **add every new per-user
-  table to that list in the same commit that creates it.**
-- **Logout wipes Cache Storage** (`clearStoredAuth`). `sw.js` falls back to
-  cache offline, so without the wipe a signed-out shared phone could re-serve
-  the last screens it saw.
+**One validator, both sides:** `lib/account/validate.ts::validateCredentials`
+is called by the register route AND by the register form on submit —
+username trimmed + lower-cased, `^[a-z0-9._-]{3,32}$`; password ≥ 8 chars
+and **never trimmed** (login does not trim either, so what was typed at
+sign-up is what signs in). A taken username is a `409` from the `UNIQUE`
+violation, not a pre-select, so two racing sign-ups cannot both win.
+`register` returns exactly the login response (`access_token`, `user`), so
+`AuthProvider` stores both through one `authenticate` helper.
 
-Client side, `lib/authStore.ts` holds token + user in localStorage and exposes
-them through `useSyncExternalStore` (server snapshot = signed out), so there is
-no hydration mismatch and no setState-in-effect. `AuthProvider` validates the
-stored token against `/auth/me` on every load; `lib/api.ts::fetchJSON` turns
-any 401 into a sign-out.
+**Logout wipes Cache Storage** (`clearStoredAuth`). `sw.js` falls back to
+cache offline, so without the wipe a signed-out shared phone could re-serve
+the last screens it saw.
+
+Client side, `lib/authStore.ts` holds token + user (`{id, username}`) in
+localStorage and exposes them through `useSyncExternalStore` (server
+snapshot = signed out), so there is no hydration mismatch and no
+setState-in-effect. `AuthProvider` validates the stored token against
+`/auth/me` on every load; `lib/api.ts::fetchJSON` turns any 401 into a
+sign-out. `/login` and `/register` share `AuthCard` (shell, input and
+button classes, `withNext` to carry `?next=` between them).
 
 Errors are `{ detail: string }` with an HTTP status — throw `HttpError` inside
 a `handle()`-wrapped route and the client shows `detail`.
@@ -226,30 +243,38 @@ never paint a stale copy first.
 ## Transactions — the ledger
 
 One entry = `kind` (expense | income) · `amount` · `occurred_on` · `category`
-· `note`, per user. Spec: `docs/superpowers/specs/2026-09-16-transactions-ledger-design.md`.
+· `note` · `client_id` · `gods_share`, per user. Spec:
+`docs/superpowers/specs/2026-09-16-transactions-ledger-design.md`; the last
+two fields are from `2026-09-20-clients-and-gods-share-design.md`.
 
 **Table:** `transactions(id, user_id, kind, amount NUMERIC(14,2), occurred_on
-TEXT, category, note, created_at, updated_at)` + index `(user_id,
-occurred_on)`. NUMERIC so sums are exact; read back `::float8`. Dates are ISO
-text like everywhere else — a month is the half-open string range
-`[YYYY-MM-01, next-01)` from `lib/ledger/months.ts`.
+TEXT, category, note, client_id TEXT NULL, gods_share NUMERIC(14,2) DEFAULT 0,
+created_at, updated_at)` + indexes `(user_id, occurred_on)` and `(user_id,
+client_id, occurred_on)`. NUMERIC so sums are exact; read back `::float8`.
+Dates are ISO text like everywhere else — a month is the half-open string
+range `[YYYY-MM-01, next-01)` from `lib/ledger/months.ts`, a year
+`[YYYY-01-01, next-01-01)`.
 
 **Every query is in `server/transactions.ts` and every one filters on the
 caller's `user_id`.** `fetchOwned` 404s for another user's row and for a
-missing one alike — which it is, is not the caller's business. The admin
-delete cascade includes this table.
+missing one alike — which it is, is not the caller's business.
 
 **One validator, both sides.** `lib/ledger/validate.ts::validateTransactionInput`
 is called by the API route AND by `TransactionForm` on submit, so a value the
 form accepts is a value the server accepts. Amounts snap to cents
 (`0.1 + 0.2` is stored as `0.3`); dates must be real calendar days in
-1970–2100; category ≤ 40, note ≤ 500.
+1970–2100; category ≤ 40, note ≤ 500; `0 ≤ gods_share ≤ amount`; a
+`client_id` on an expense is refused.
 
 **The list IS the month.** `GET /api/transactions?month=` returns the whole
 month (newest day first, newest-created first within a day) plus the user's
-distinct categories per kind; the page derives totals (`summarize`) and day
-groups (`groupByDay`) from that list with the pure helpers, so nothing on
-screen can disagree with the rows.
+distinct categories per kind and their clients (for the form's select); the
+page derives totals (`summarize`) and day groups (`groupByDay`) from that
+list with the pure helpers, so nothing on screen can disagree with the rows.
+
+**`TransactionForm` is THE entry form.** The client page and the God's share
+page open the same component with a `prefill` (`kind`, `client_id`,
+`godsShareOn`, `amount`, `category`) rather than growing forms of their own.
 
 UI rules: amounts use `formatAmount` (keeps piastres, drops `.00`), never
 `formatMoney`; income `gain`, expenses `loss`, net by sign; day labels come
@@ -259,6 +284,51 @@ offset — never a server-rendered `new Date()`, whose day may differ from the
 phone's. While another month loads the previous list stays at 50% opacity.
 The form overlay is `z-[60]` so the `z-50` pill nav cannot cover its Delete
 button or steal a tap.
+
+## Clients & God's share
+
+Spec: `docs/superpowers/specs/2026-09-20-clients-and-gods-share-design.md`.
+
+**A client is who income is collected from — NOT a money account.** "Accounts"
+(bank, cash, wallet) stay undesigned. `clients(id, user_id, name, note,
+created_at, updated_at)` with a unique index on `(user_id, lower(name))`; the
+route turns the violation into a 409 with the name in it. Queries live in
+`server/clients.ts`, all user-scoped; `fetchOwnedClient` 404s like
+`fetchOwned`. Writing a transaction with a `client_id` runs `fetchOwnedClient`
+first, so another user's client id is a 404, not a link.
+
+**Deleting a client UNLINKS, never deletes.** `DELETE /api/clients/{id}` nulls
+`client_id` on its rows and removes the client in one `sql.begin` — the income
+happened and its share is still owed. The form's confirm says so.
+
+**God's share is one column with one meaning: "how much of this entry is
+God's share money."** On an income it is the amount set aside (accrued); on an
+expense it is the amount paid out (settled). The tracker is two `SUM`s —
+`server/transactions.ts::godsShareTotals` — and `lib/ledger/godsShare.ts::
+godsShareTotals` is its client-side twin over a list. There is no settlements
+table and no settle verb: a settlement IS an expense with `gods_share` set,
+written through `POST /api/transactions`, so the month it lands in shows the
+cash leaving. `DEFAULT_GODS_SHARE_RATE = 0.1` is a constant (a fraction, like
+every rate here); a per-user rate would go in `user_settings`, not built.
+
+Form rules: on an income the toggle is on by default and the share field
+follows 10% of the amount until the user types in it (`shareTouched`); an
+existing entry's stored share counts as typed. On an expense the toggle is off
+by default and means the WHOLE expense settles (`gods_share = amount`).
+Switching kind resets the toggle to that kind's default — the two toggles
+answer different questions.
+
+Pages: `/clients` (year bar, one card per client with the year's total from a
+per-client SUM in SQL), `/clients/[id]` (the year's income rows; tiles derive
+from that list — the list IS the year), `/gods-share` (Set aside / Settled /
+Remaining + settlements; "Settle" prefills an expense at the remaining
+amount, category "God's share"), Home (this month + share owed, each a link).
+`useToday` (`lib/today.ts`), `PeriodBar`, `Tile` and `Fab` are shared — do
+not copy them into a new page.
+
+**Colour follows the money rule here too:** a client's year total is `gain`
+(money in), a settlement row is `loss` (money out), the share on an income
+row and every tracker tile are positions and stay muted/white.
 
 ## Real Estate — buying capacity
 
@@ -359,18 +429,20 @@ npm test         # Vitest — the pure modules (src/lib, src/app/lib)
 `.next/types/validator.ts` is written by `next build` and lists every route;
 after renaming a route, `tsc` fails on it until the next build regenerates it.
 
-First request creates the schema and seeds `AUTH_USERS` / `AUTH_ADMINS`.
+First request creates the schema.
 
 **Pushing: `gh auth switch --user MarkBotros0` first** — the machine has
 several `gh` accounts and the wrong one gets a 403 on `MarkBotros0/my-wallet`.
 
 ## Deliberately missing (so far)
 
-- Any public surface, self-service password change, role editing in the UI —
-  all inherited decisions from EGX.
-- Accounts, recurring entries, budgets, multi-currency, a categories table
-  (categories are free text with autocomplete from history) — **not designed
-  yet.** Plan before building.
+- Self-service password change, password recovery, account deletion, any
+  admin role — with no admin, a forgotten password is a row edit (see the
+  2026-09-20 open-registration spec).
+- Money accounts (bank / cash — distinct from clients), recurring entries,
+  budgets, multi-currency, a categories table (categories are free text with
+  autocomplete from history), a per-user God's share rate, expenses linked to
+  a client, a Reports page — **not designed yet.** Plan before building.
 - The calculator models no borrowing, no property appreciation, no rent, and
   a constant return rate; the page says so. A price target with a direction
   attached is the thing EGX deliberately refuses to show, and this app should

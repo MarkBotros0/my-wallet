@@ -48,6 +48,18 @@ const TABS = [
     ),
   },
   {
+    href: "/clients",
+    label: "Clients",
+    icon: (
+      <svg {...ICON}>
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
+  {
     href: "/real-estate",
     label: "Real Estate",
     icon: (
@@ -59,18 +71,6 @@ const TABS = [
         <path d="M10 10h4" />
         <path d="M10 14h4" />
         <path d="M10 18h4" />
-      </svg>
-    ),
-  },
-  {
-    href: "/reports",
-    label: "Reports",
-    icon: (
-      <svg {...ICON}>
-        <path d="M3 3v18h18" />
-        <path d="M18 17V9" />
-        <path d="M13 17V5" />
-        <path d="M8 17v-3" />
       </svg>
     ),
   },

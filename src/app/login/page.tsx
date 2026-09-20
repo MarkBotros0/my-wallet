@@ -1,8 +1,10 @@
 "use client";
 
-import { Suspense, useState, FormEvent, useEffect } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "../components/AuthProvider";
+import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS, AuthCard, withNext } from "../components/AuthCard";
 
 function LoginForm() {
   const router = useRouter();
@@ -46,7 +48,7 @@ function LoginForm() {
           required
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-[16px] text-white outline-none transition-colors focus:border-accent/50 focus:ring-1 focus:ring-accent/20 md:text-sm"
+          className={AUTH_INPUT_CLASS}
         />
       </div>
 
@@ -58,7 +60,7 @@ function LoginForm() {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-[16px] text-white outline-none transition-colors focus:border-accent/50 focus:ring-1 focus:ring-accent/20 md:text-sm"
+          className={AUTH_INPUT_CLASS}
         />
       </div>
 
@@ -68,33 +70,26 @@ function LoginForm() {
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="min-h-[44px] w-full rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-charcoal-dark transition-opacity disabled:opacity-50"
-      >
+      <button type="submit" disabled={submitting} className={AUTH_BUTTON_CLASS}>
         {submitting ? "Signing in…" : "Sign in"}
       </button>
+
+      <p className="text-center text-sm text-white/50">
+        New here?{" "}
+        <Link href={withNext("/register", next)} className="text-accent hover:underline">
+          Create an account
+        </Link>
+      </p>
     </form>
   );
 }
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-charcoal p-6 shadow-xl">
-        <div className="mb-6 text-center">
-          <div className="mb-3 flex items-center justify-center gap-2">
-            <span className="text-2xl font-bold text-accent">My</span>
-            <span className="text-lg text-white/60">Wallet</span>
-          </div>
-          <h1 className="text-2xl font-bold text-white">Sign in</h1>
-          <p className="mt-1 text-sm text-white/50">Your expenses, income and buying power.</p>
-        </div>
-        <Suspense fallback={null}>
-          <LoginForm />
-        </Suspense>
-      </div>
-    </div>
+    <AuthCard title="Sign in" subtitle="Your expenses, income and buying power.">
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
+    </AuthCard>
   );
 }

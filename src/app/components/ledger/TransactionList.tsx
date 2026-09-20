@@ -20,12 +20,17 @@ function dayLabel(iso: string): string {
  * A month's entries grouped by day, newest first. Each row is a button —
  * tapping it opens the edit form. Amounts are signed and coloured by
  * direction, per the design-system rule: green is money in, red is money out.
+ *
+ * God's share on a row is a portion, not a direction, so it stays muted.
  */
 export default function TransactionList({
   transactions,
+  clientNames,
   onSelect,
 }: {
   transactions: Transaction[];
+  /** id → name, to show which client an income came from. Omit where every row is the same client. */
+  clientNames?: Record<string, string>;
   onSelect: (t: Transaction) => void;
 }) {
   const groups = groupByDay(transactions);
@@ -41,30 +46,41 @@ export default function TransactionList({
             </span>
           </div>
           <ul className="overflow-hidden rounded-xl border border-white/10 bg-charcoal">
-            {g.items.map((t) => (
-              <li key={t.id} className="border-b border-white/5 last:border-0">
-                <button
-                  type="button"
-                  onClick={() => onSelect(t)}
-                  className="flex min-h-[56px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.03] active:bg-white/5"
-                >
-                  <span className="min-w-0">
-                    <span className={`block truncate text-sm ${t.category ? "text-white" : "text-white/40"}`}>
-                      {t.category || "Uncategorised"}
-                    </span>
-                    {t.note && <span className="block truncate text-xs text-white/40">{t.note}</span>}
-                  </span>
-                  <span
-                    className={`shrink-0 font-mono text-sm tabular-nums ${
-                      t.kind === "income" ? "text-gain" : "text-loss"
-                    }`}
+            {g.items.map((t) => {
+              const clientName = t.client_id ? clientNames?.[t.client_id] : undefined;
+              const detail = [clientName, t.note].filter(Boolean).join(" · ");
+              return (
+                <li key={t.id} className="border-b border-white/5 last:border-0">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(t)}
+                    className="flex min-h-[56px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.03] active:bg-white/5"
                   >
-                    {t.kind === "income" ? "+" : "−"}
-                    {formatAmount(t.amount, "")}
-                  </span>
-                </button>
-              </li>
-            ))}
+                    <span className="min-w-0">
+                      <span className={`block truncate text-sm ${t.category ? "text-white" : "text-white/40"}`}>
+                        {t.category || "Uncategorised"}
+                      </span>
+                      {detail && <span className="block truncate text-xs text-white/40">{detail}</span>}
+                      {t.gods_share > 0 && (
+                        <span className="block truncate text-[11px] text-white/35">
+                          {t.kind === "income"
+                            ? `God's share ${formatAmount(t.gods_share, "")}`
+                            : "Pays God's share"}
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className={`shrink-0 font-mono text-sm tabular-nums ${
+                        t.kind === "income" ? "text-gain" : "text-loss"
+                      }`}
+                    >
+                      {t.kind === "income" ? "+" : "−"}
+                      {formatAmount(t.amount, "")}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}

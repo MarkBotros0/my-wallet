@@ -17,12 +17,9 @@ const PRESENCE_COOKIE = "wallet.auth.present";
 // Thirty days, matching TOKEN_LIFETIME_DAYS on the server.
 const PRESENCE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
-export type UserRole = "user" | "admin";
-
 export interface AuthUser {
   id: string;
   username: string;
-  role: UserRole;
 }
 
 export interface StoredAuth {
@@ -35,11 +32,6 @@ const EMPTY: StoredAuth = { token: null, user: null };
 let snapshot: StoredAuth | null = null;
 const listeners = new Set<() => void>();
 
-/** Anything that isn't literally "admin" is a plain user. */
-export function asRole(value: unknown): UserRole {
-  return value === "admin" ? "admin" : "user";
-}
-
 function readFromStorage(): StoredAuth {
   try {
     const token = localStorage.getItem(TOKEN_KEY);
@@ -47,11 +39,10 @@ function readFromStorage(): StoredAuth {
     const raw = localStorage.getItem(USER_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     // Cached from a previous session and only ever used optimistically —
-    // /auth/me re-reads the role from the DB on every load, and the backend
-    // enforces it regardless of what is in localStorage.
+    // /auth/me re-reads the row on every load.
     const user: AuthUser | null =
       parsed && typeof parsed.id === "string" && typeof parsed.username === "string"
-        ? { id: parsed.id, username: parsed.username, role: asRole(parsed.role) }
+        ? { id: parsed.id, username: parsed.username }
         : null;
     return { token, user };
   } catch {

@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import {
   monthKeyOf,
   monthLabel,
   shiftMonth,
   summarize,
-  toIsoDate,
   type Transaction,
   type TransactionInput,
 } from "@/lib/ledger";
@@ -18,15 +17,13 @@ import {
   type MonthResponse,
 } from "@/app/lib/api";
 import { formatAmount, formatSignedAmount } from "@/app/lib/format";
+import { useToday } from "@/app/lib/today";
 import { CardSkeleton, TableSkeleton } from "../LoadingSkeleton";
+import Fab from "../Fab";
+import PeriodBar from "./PeriodBar";
+import Tile from "./Tile";
 import TransactionForm from "./TransactionForm";
 import TransactionList, { netClass } from "./TransactionList";
-
-// Today's date in the BROWSER's calendar, read the hydration-safe way: null
-// on the server and during the hydration render, the real day right after.
-// The server's clock is in another timezone and may be on another day.
-const noSubscribe = () => () => {};
-const useToday = () => useSyncExternalStore(noSubscribe, () => toIsoDate(new Date()), () => null);
 
 type Editing = { mode: "create" } | { mode: "edit"; entry: Transaction } | null;
 
@@ -87,6 +84,7 @@ export default function LedgerPage() {
   const stale = data !== null && month !== null && data.month !== month;
   const shown = data;
   const summary = shown ? summarize(shown.transactions) : null;
+  const clientNames = Object.fromEntries((shown?.clients ?? []).map((c) => [c.id, c.name]));
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 md:py-8">
@@ -104,37 +102,7 @@ export default function LedgerPage() {
         </button>
       </div>
 
-      {/* Month navigation */}
-      <div className="mb-4 flex items-center justify-between rounded-xl border border-white/10 bg-charcoal px-2 py-1.5">
-        <button
-          type="button"
-          onClick={() => setOffset((o) => o - 1)}
-          aria-label="Previous month"
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/5 hover:text-white"
-        >
-          ‹
-        </button>
-        <div className="flex flex-col items-center">
-          <span className="text-sm font-semibold text-white">{month ? monthLabel(month) : " "}</span>
-          {offset !== 0 && (
-            <button
-              type="button"
-              onClick={() => setOffset(0)}
-              className="text-[11px] text-accent hover:underline"
-            >
-              This month
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setOffset((o) => o + 1)}
-          aria-label="Next month"
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/5 hover:text-white"
-        >
-          ›
-        </button>
-      </div>
+      <PeriodBar label={month ? monthLabel(month) : " "} offset={offset} onShift={setOffset} unit="month" />
 
       {error && (
         <div className="mb-4 rounded-lg border border-loss/30 bg-loss/10 px-3 py-2.5 text-sm text-loss">{error}</div>
@@ -172,43 +140,26 @@ export default function LedgerPage() {
           ) : (
             <TransactionList
               transactions={shown.transactions}
+              clientNames={clientNames}
               onSelect={(entry) => setEditing({ mode: "edit", entry })}
             />
           )}
         </div>
       )}
 
-      {/* Mobile FAB, clearing the pill nav through the shared variable. */}
-      <button
-        type="button"
-        onClick={() => setEditing({ mode: "create" })}
-        aria-label="Add entry"
-        className="fixed right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-2xl font-light text-charcoal-dark shadow-lg transition-transform active:scale-95 md:hidden"
-        style={{ bottom: "calc(var(--bottom-nav-clearance) + 12px)" }}
-      >
-        +
-      </button>
+      <Fab onClick={() => setEditing({ mode: "create" })} ariaLabel="Add entry" />
 
       {editing && (
         <TransactionForm
           key={editing.mode === "edit" ? editing.entry.id : "create"}
           existing={editing.mode === "edit" ? editing.entry : undefined}
           categories={shown?.categories ?? { expense: [], income: [] }}
+          clients={shown?.clients ?? []}
           onSave={handleSave}
           onDelete={editing.mode === "edit" ? handleDelete : undefined}
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
-  );
-}
-
-function Tile({ label, value, className, sub }: { label: string; value: string; className: string; sub?: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-charcoal p-3">
-      <div className="text-[11px] text-white/40">{label}</div>
-      <div className={`mt-0.5 truncate font-mono text-sm tabular-nums sm:text-base ${className}`}>{value}</div>
-      {sub && <div className="text-[10px] text-white/30">{sub}</div>}
     </div>
   );
 }

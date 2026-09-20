@@ -1,6 +1,6 @@
 import type { Sql } from "./db";
 import { HttpError } from "./http";
-import type { CategorySuggestions, Transaction, TransactionKind } from "@/lib/ledger";
+import type { CategorySuggestions, GodsShareTotals, Transaction, TransactionKind } from "@/lib/ledger";
 
 /**
  * The one spelling of the ledger's queries. Every function takes the
@@ -15,6 +15,8 @@ interface Row {
   occurred_on: string;
   category: string;
   note: string;
+  client_id: string | null;
+  gods_share: number;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +29,8 @@ function toTransaction(row: Row): Transaction {
     occurred_on: row.occurred_on,
     category: row.category,
     note: row.note,
+    client_id: row.client_id,
+    gods_share: Number(row.gods_share),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -39,9 +43,28 @@ export async function listForMonth(
   range: { from: string; to: string },
 ): Promise<Transaction[]> {
   const rows = await sql<Row[]>`
-    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note, created_at, updated_at
+    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+           client_id, gods_share::float8 AS gods_share, created_at, updated_at
     FROM transactions
     WHERE user_id = ${userId} AND occurred_on >= ${range.from} AND occurred_on < ${range.to}
+    ORDER BY occurred_on DESC, created_at DESC
+  `;
+  return rows.map(toTransaction);
+}
+
+/** One client's income for a date range (a calendar year, in practice), newest first. */
+export async function listForClient(
+  sql: Sql,
+  userId: string,
+  clientId: string,
+  range: { from: string; to: string },
+): Promise<Transaction[]> {
+  const rows = await sql<Row[]>`
+    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+           client_id, gods_share::float8 AS gods_share, created_at, updated_at
+    FROM transactions
+    WHERE user_id = ${userId} AND client_id = ${clientId} AND kind = 'income'
+      AND occurred_on >= ${range.from} AND occurred_on < ${range.to}
     ORDER BY occurred_on DESC, created_at DESC
   `;
   return rows.map(toTransaction);
@@ -65,7 +88,8 @@ export async function categorySuggestions(sql: Sql, userId: string): Promise<Cat
 
 export async function fetchOwned(sql: Sql, userId: string, id: string): Promise<Transaction> {
   const rows = await sql<Row[]>`
-    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note, created_at, updated_at
+    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+           client_id, gods_share::float8 AS gods_share, created_at, updated_at
     FROM transactions
     WHERE id = ${id} AND user_id = ${userId}
   `;
@@ -73,4 +97,37 @@ export async function fetchOwned(sql: Sql, userId: string, id: string): Promise<
   // which of the two is not the caller's business.
   if (!rows[0]) throw new HttpError(404, "Transaction not found.");
   return toTransaction(rows[0]);
+}
+
+// ---- God's share ----
+
+/**
+ * The tracker's three numbers, all time: what income has set aside, what
+ * expenses have paid out, and the difference. The SQL twin of
+ * lib/ledger/godsShare.ts::godsShareTotals.
+ */
+export async function godsShareTotals(sql: Sql, userId: string): Promise<GodsShareTotals> {
+  const [row] = await sql<{ accrued: number; settled: number }[]>`
+    SELECT
+      COALESCE(SUM(gods_share) FILTER (WHERE kind = 'income'), 0)::float8  AS accrued,
+      COALESCE(SUM(gods_share) FILTER (WHERE kind = 'expense'), 0)::float8 AS settled
+    FROM transactions
+    WHERE user_id = ${userId}
+  `;
+  const accrued = Number(row?.accrued ?? 0);
+  const settled = Number(row?.settled ?? 0);
+  return { accrued, settled, remaining: Math.round((accrued - settled) * 100) / 100 };
+}
+
+/** Expenses that paid God's share, newest first. */
+export async function listSettlements(sql: Sql, userId: string, limit = 200): Promise<Transaction[]> {
+  const rows = await sql<Row[]>`
+    SELECT id, kind, amount::float8 AS amount, occurred_on, category, note,
+           client_id, gods_share::float8 AS gods_share, created_at, updated_at
+    FROM transactions
+    WHERE user_id = ${userId} AND kind = 'expense' AND gods_share > 0
+    ORDER BY occurred_on DESC, created_at DESC
+    LIMIT ${limit}
+  `;
+  return rows.map(toTransaction);
 }

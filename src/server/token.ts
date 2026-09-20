@@ -86,6 +86,7 @@ export function bearerToken(authorization: string | null): string {
  */
 export const PUBLIC_ENDPOINTS: ReadonlySet<string> = new Set([
   "POST /api/auth/login", // the way in
+  "POST /api/auth/register", // the way to a first account
 ]);
 
 export function isPublicEndpoint(method: string, pathname: string): boolean {

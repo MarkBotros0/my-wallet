@@ -1,5 +1,14 @@
 import { getStoredToken, notifyUnauthorized } from "../components/AuthProvider";
-import type { CategorySuggestions, Transaction, TransactionInput } from "@/lib/ledger";
+import type {
+  CategorySuggestions,
+  Client,
+  ClientInput,
+  ClientOption,
+  ClientSummary,
+  GodsShareTotals,
+  Transaction,
+  TransactionInput,
+} from "@/lib/ledger";
 
 /**
  * Typed fetch wrappers. Every call goes through `fetchJSON`, which attaches
@@ -44,70 +53,13 @@ export async function fetchJSON<T>(
   }
 }
 
-// ---- User administration (admin only) ----
-
-export interface ManagedUser {
-  id: string;
-  username: string;
-  role: "user" | "admin";
-  is_active: boolean;
-  created_at: string;
-}
-
-/**
- * `generated_password` is populated ONLY when the backend generated one, and
- * only on the response to the call that created it. It is never readable again.
- */
-export interface PasswordResult {
-  generated_password: string | null;
-}
-
-export async function fetchUsers(): Promise<{ users: ManagedUser[] }> {
-  return fetchJSON<{ users: ManagedUser[] }>(`${BASE}/users`);
-}
-
-export async function createUser(
-  username: string,
-  password?: string,
-): Promise<{ user: ManagedUser } & PasswordResult> {
-  return fetchJSON(`${BASE}/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password: password || null }),
-  });
-}
-
-export async function resetUserPassword(
-  id: string,
-  password?: string,
-): Promise<{ id: string; username: string } & PasswordResult> {
-  return fetchJSON(`${BASE}/users/${encodeURIComponent(id)}/password`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: password || null }),
-  });
-}
-
-export async function setUserActive(id: string, isActive: boolean): Promise<ManagedUser> {
-  return fetchJSON<ManagedUser>(`${BASE}/users/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ is_active: isActive }),
-  });
-}
-
-export async function deleteUser(id: string): Promise<{ deleted: string; username: string }> {
-  return fetchJSON(`${BASE}/users/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
 // ---- Transactions ledger ----
 
 export interface MonthResponse {
   month: string;
   transactions: Transaction[];
   categories: CategorySuggestions;
+  clients: ClientOption[];
 }
 
 export async function fetchMonth(month: string): Promise<MonthResponse> {
@@ -135,4 +87,61 @@ export async function updateTransaction(
 
 export async function deleteTransaction(id: string): Promise<{ deleted: string }> {
   return fetchJSON(`${BASE}/transactions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- Clients ----
+
+export interface ClientsResponse {
+  year: string;
+  clients: ClientSummary[];
+}
+
+export interface ClientYearResponse {
+  client: Client;
+  year: string;
+  transactions: Transaction[];
+  /** What the entry form needs, so the client page can add income in place. */
+  categories: CategorySuggestions;
+  clients: ClientOption[];
+}
+
+export async function fetchClients(year: string): Promise<ClientsResponse> {
+  return fetchJSON<ClientsResponse>(`${BASE}/clients?year=${encodeURIComponent(year)}`);
+}
+
+export async function fetchClientYear(id: string, year: string): Promise<ClientYearResponse> {
+  return fetchJSON<ClientYearResponse>(
+    `${BASE}/clients/${encodeURIComponent(id)}?year=${encodeURIComponent(year)}`,
+  );
+}
+
+export async function createClient(input: ClientInput): Promise<{ client: Client }> {
+  return fetchJSON(`${BASE}/clients`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateClient(id: string, input: ClientInput): Promise<{ client: Client }> {
+  return fetchJSON(`${BASE}/clients/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteClient(id: string): Promise<{ deleted: string }> {
+  return fetchJSON(`${BASE}/clients/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- God's share ----
+
+export interface GodsShareResponse {
+  totals: GodsShareTotals;
+  settlements: Transaction[];
+}
+
+export async function fetchGodsShare(): Promise<GodsShareResponse> {
+  return fetchJSON<GodsShareResponse>(`${BASE}/gods-share`);
 }

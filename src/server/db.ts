@@ -50,16 +50,9 @@ async function initDb(sql: Sql): Promise<void> {
       created_at    TEXT NOT NULL
     )
   `;
-  // `role` is NOT settable through the admin API: it is stamped from the
-  // AUTH_ADMINS env var at boot (see server/auth.ts seedUsersFromEnv), which
-  // makes privilege escalation through /api/users structurally impossible and
-  // keeps admin status declared in one auditable place that survives a DB
-  // reset.
-  //
-  // `is_active` FALSE blocks login AND invalidates any token already issued,
-  // because getCurrentUser re-reads this row on every request.
-  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`;
-  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`;
+  // Databases from before 2026-09-20 also carry `role` and `is_active`
+  // columns from the admin model. They have defaults, nothing reads them,
+  // and nothing drops them — never rewrite what exists.
 
   // Per-user preferences (currency, display options — whatever comes). A
   // separate table keyed by user, so deleting a user has one obvious place to
@@ -91,14 +84,33 @@ async function initDb(sql: Sql): Promise<void> {
   `;
   await sql`CREATE INDEX IF NOT EXISTS transactions_user_day ON transactions (user_id, occurred_on)`;
 
-  // Deferred import: auth.ts imports this module, so the seed is pulled in at
-  // call time rather than at load time to avoid a cycle.
-  const { seedUsersFromEnv } = await import("./auth");
-  await seedUsersFromEnv(sql);
+  // Clients: the people income is collected from. A client is per user and
+  // its name is unique per user, case-insensitively — "Acme" and "acme" are
+  // one client mistyped, not two.
+  await sql`
+    CREATE TABLE IF NOT EXISTS clients (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      note       TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS clients_user_name ON clients (user_id, lower(name))`;
+
+  // An income entry may be linked to a client (NULL = unlinked; deleting a
+  // client nulls this rather than removing the income). `gods_share` means
+  // the same thing on both kinds — how much of the entry is God's share
+  // money: set aside on an income, paid out on an expense — so the tracker is
+  // two SUMs on one column. Rows from before the column carry 0.
+  await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS client_id TEXT`;
+  await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS gods_share NUMERIC(14,2) NOT NULL DEFAULT 0`;
+  await sql`CREATE INDEX IF NOT EXISTS transactions_user_client ON transactions (user_id, client_id, occurred_on)`;
 }
 
 /**
- * The ready database. Runs schema init + env seed exactly once per process;
+ * The ready database. Runs schema init exactly once per process;
  * every route handler awaits this rather than touching `getSql()` directly.
  *
  * A failed init is NOT cached — the next request retries, so a transient

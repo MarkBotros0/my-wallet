@@ -15,19 +15,17 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000>. The first request creates the schema and seeds
-the accounts listed in `AUTH_USERS`, promoting those in `AUTH_ADMINS`.
+Open <http://localhost:3000>. The first request creates the schema; follow
+**Create an account** on the sign-in page to make yours.
 
 | variable | purpose |
 |---|---|
 | `DATABASE_URL` | Neon Postgres connection string (`sslmode=require`) |
 | `AUTH_SECRET` | signs every JWT — rotate it to log everyone out |
-| `AUTH_USERS` | bootstrap accounts, `user:password,user:password`; created only if missing |
-| `AUTH_ADMINS` | comma-separated admin usernames; authoritative, re-applied on boot |
-| `NEXT_PUBLIC_APP_URL` | address pasted into the "Login details" block (defaults to the current origin) |
 
-There is no sign-up. Admins create users from the **Users** page (icon beside
-Log out) and hand over a generated password, shown once.
+Anyone with the URL can create an account; every ledger row is scoped to its
+owner. There is no admin, no e-mail and no password recovery — a forgotten
+password is a row edit in the database.
 
 ## Scripts
 

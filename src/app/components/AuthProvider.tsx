@@ -11,7 +11,6 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
-  asRole,
   clearStoredAuth,
   getServerSnapshot,
   getSnapshot,
@@ -20,10 +19,9 @@ import {
   storeAuth,
   subscribe,
   type AuthUser,
-  type UserRole,
 } from "../lib/authStore";
 
-export type { AuthUser, UserRole };
+export type { AuthUser };
 export { clearStoredAuth, getStoredToken };
 
 const UNAUTHORIZED_EVENT = "wallet:unauthorized";
@@ -36,10 +34,10 @@ interface AuthCtx {
   user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
-  isAdmin: boolean;
   isLoading: boolean;
   error: string | null;
   login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -79,8 +77,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Validate the token with the backend. A rotated AUTH_SECRET makes every
     // existing signature invalid, so this call fails with 401 and logs the
-    // user out on the first page load after a secret rotation. A role change
-    // lands here too — /auth/me reads the role from the DB row.
+    // user out on the first page load after a secret rotation. A row deleted
+    // by hand lands here too — /auth/me reads the DB row.
     let cancelled = false;
     fetch(`${BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${stored}` },
@@ -93,11 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const data = await res.json();
         if (res.ok && data?.id && data?.username) {
-          storeAuth(stored, {
-            id: data.id,
-            username: data.username,
-            role: asRole(data.role),
-          });
+          storeAuth(stored, { id: data.id, username: data.username });
         }
       })
       .catch(() => {
@@ -127,27 +121,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, [router]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    setError(null);
-    const res = await fetch(`${BASE}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data?.detail || data?.error || "Invalid username or password";
-      setError(msg);
-      throw new Error(msg);
-    }
-    storeAuth(data.access_token, {
-      id: data.user?.id,
-      username: data.user?.username,
-      role: asRole(data.user?.role),
-    });
-    // The login response is authoritative — nothing left to validate.
-    setValidated(true);
-  }, []);
+  // Login and register are one shape: POST the credentials, store what comes
+  // back. The register route returns the login response with a 201.
+  const authenticate = useCallback(
+    async (path: "login" | "register", username: string, password: string) => {
+      setError(null);
+      const res = await fetch(`${BASE}/auth/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const fallback = path === "login" ? "Invalid username or password" : "Could not create the account";
+        const msg = data?.detail || data?.error || fallback;
+        setError(msg);
+        throw new Error(msg);
+      }
+      storeAuth(data.access_token, { id: data.user?.id, username: data.user?.username });
+      // The response is authoritative — nothing left to validate.
+      setValidated(true);
+    },
+    [],
+  );
+
+  const login = useCallback(
+    (username: string, password: string) => authenticate("login", username, password),
+    [authenticate],
+  );
+
+  const register = useCallback(
+    (username: string, password: string) => authenticate("register", username, password),
+    [authenticate],
+  );
 
   const logout = useCallback(() => {
     clearStoredAuth();
@@ -159,15 +165,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       token,
       isAuthenticated: !!user && !!token,
-      isAdmin: user?.role === "admin",
       // Signed out there is nothing to load; signed in, we are loading until
       // /auth/me has answered once this page load.
       isLoading: !!token && !validated,
       error,
       login,
+      register,
       logout,
     }),
-    [user, token, validated, error, login, logout],
+    [user, token, validated, error, login, register, logout],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -180,10 +186,10 @@ export function useAuth(): AuthCtx {
       user: null,
       token: null,
       isAuthenticated: false,
-      isAdmin: false,
       isLoading: false,
       error: null,
       login: async () => {},
+      register: async () => {},
       logout: () => {},
     };
   }

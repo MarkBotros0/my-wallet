@@ -4,24 +4,24 @@ import { bearerToken, decodeToken, isPublicEndpoint } from "@/server/token";
 import { HttpError } from "@/server/http";
 
 /**
- * The app is CLOSED. Two gates live here, stated once:
+ * Two gates live here, stated once:
  *
  * 1. PAGES — every route redirects to /login until the visitor signs in. This
  *    is a deny-by-default list, so a page added later is protected without
- *    anyone remembering to add it. Only the login page and the static files
- *    the browser needs to render it are reachable signed out.
+ *    anyone remembering to add it. Only the login and register pages and the
+ *    static files the browser needs to render them are reachable signed out.
  *
  *    This half is UX, not security. The `wallet.auth.present` cookie is set by
  *    client JS and carries no signature, so it proves only that someone
  *    believes they are signed in.
  *
  * 2. API — every /api/* request must carry a Bearer token with a valid
- *    signature unless the route is in PUBLIC_ENDPOINTS (today: login only).
- *    This is the real guard's FIRST layer; route handlers then re-read the
- *    user row (role, is_active) through getCurrentUser, which is the second.
- *    A route added tomorrow is 401 until someone deliberately opens it.
+ *    signature unless the route is in PUBLIC_ENDPOINTS (today: login and
+ *    register). This is the real guard's FIRST layer; route handlers then
+ *    re-read the user row through getCurrentUser, which is the second. A
+ *    route added tomorrow is 401 until someone deliberately opens it.
  */
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/register"];
 
 const PUBLIC_FILE_PREFIXES = [
   "/_next",

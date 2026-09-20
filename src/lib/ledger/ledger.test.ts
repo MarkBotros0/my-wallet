@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_GODS_SHARE_RATE,
+  defaultGodsShare,
+  godsShareTotals,
   groupByDay,
   isMonthKey,
+  isYearKey,
   monthKeyOf,
   monthLabel,
   monthRange,
   shiftMonth,
   summarize,
   toIsoDate,
+  validateClientInput,
   validateTransactionInput,
+  yearOf,
+  yearRange,
   type Transaction,
 } from "./index";
 
@@ -19,6 +26,8 @@ const tx = (over: Partial<Transaction> = {}): Transaction => ({
   occurred_on: "2026-09-16",
   category: "Food",
   note: "",
+  client_id: null,
+  gods_share: 0,
   created_at: "2026-09-16T10:00:00.000Z",
   updated_at: "2026-09-16T10:00:00.000Z",
   ...over,
@@ -31,8 +40,77 @@ describe("validateTransactionInput", () => {
     const r = validateTransactionInput(good);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value).toEqual({ kind: "expense", amount: 1250.5, occurred_on: "2026-09-16", category: "Food", note: "lunch" });
+      expect(r.value).toEqual({
+        kind: "expense",
+        amount: 1250.5,
+        occurred_on: "2026-09-16",
+        category: "Food",
+        note: "lunch",
+        client_id: null,
+        gods_share: 0,
+      });
     }
+  });
+
+  describe("gods_share", () => {
+    const income = { kind: "income", amount: 1000, occurred_on: "2026-09-16" };
+
+    it("defaults to zero when absent", () => {
+      const r = validateTransactionInput(income);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.gods_share).toBe(0);
+    });
+
+    it("accepts any amount from zero up to the entry's amount, on either kind", () => {
+      for (const gods_share of [0, 0.01, 100, 1000]) {
+        expect(validateTransactionInput({ ...income, gods_share }).ok, `income ${gods_share}`).toBe(true);
+        expect(validateTransactionInput({ ...good, gods_share, amount: 1000 }).ok, `expense ${gods_share}`).toBe(true);
+      }
+    });
+
+    it("rejects a share below zero, above the amount, or not a number", () => {
+      for (const gods_share of [-1, 1000.01, "100", NaN, Infinity]) {
+        const r = validateTransactionInput({ ...income, gods_share });
+        expect(r.ok, String(gods_share)).toBe(false);
+        if (!r.ok) expect(r.errors.some((e) => /God's share/.test(e))).toBe(true);
+      }
+    });
+
+    it("rejects more than two decimals but snaps float noise to cents", () => {
+      expect(validateTransactionInput({ ...income, gods_share: 1.005 }).ok).toBe(false);
+      const r = validateTransactionInput({ ...income, gods_share: 0.1 + 0.2 });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.gods_share).toBe(0.3);
+    });
+  });
+
+  describe("client_id", () => {
+    const income = { kind: "income", amount: 1000, occurred_on: "2026-09-16" };
+
+    it("is null when absent, empty or null", () => {
+      for (const client_id of [undefined, null, ""]) {
+        const r = validateTransactionInput({ ...income, client_id });
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.value.client_id).toBeNull();
+      }
+    });
+
+    it("is kept, trimmed, on an income entry", () => {
+      const r = validateTransactionInput({ ...income, client_id: " c1 " });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.client_id).toBe("c1");
+    });
+
+    it("is refused on an expense — only income is collected from a client", () => {
+      const r = validateTransactionInput({ ...good, client_id: "c1" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors.some((e) => /client/i.test(e))).toBe(true);
+    });
+
+    it("rejects a non-string or an absurdly long id", () => {
+      expect(validateTransactionInput({ ...income, client_id: 42 }).ok).toBe(false);
+      expect(validateTransactionInput({ ...income, client_id: "x".repeat(65) }).ok).toBe(false);
+    });
   });
 
   it("treats missing category and note as empty strings", () => {
@@ -147,5 +225,88 @@ describe("groupByDay", () => {
 
   it("returns no groups for no entries", () => {
     expect(groupByDay([])).toEqual([]);
+  });
+});
+
+describe("validateClientInput", () => {
+  it("accepts a name and note, trimmed", () => {
+    const r = validateClientInput({ name: "  Acme  ", note: " retainer " });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ name: "Acme", note: "retainer" });
+  });
+
+  it("treats a missing note as empty", () => {
+    const r = validateClientInput({ name: "Acme" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.note).toBe("");
+  });
+
+  it("requires a non-blank name of at most 60 characters", () => {
+    for (const name of [undefined, "", "   ", 42, "x".repeat(61)]) {
+      const r = validateClientInput({ name });
+      expect(r.ok, String(name)).toBe(false);
+      if (!r.ok) expect(r.errors.some((e) => /name/i.test(e))).toBe(true);
+    }
+    expect(validateClientInput({ name: "x".repeat(60) }).ok).toBe(true);
+  });
+
+  it("caps the note at 500 characters", () => {
+    expect(validateClientInput({ name: "Acme", note: "x".repeat(501) }).ok).toBe(false);
+    expect(validateClientInput({ name: "Acme", note: "x".repeat(500) }).ok).toBe(true);
+  });
+
+  it("rejects anything that is not an object", () => {
+    expect(validateClientInput(null).ok).toBe(false);
+    expect(validateClientInput("Acme").ok).toBe(false);
+  });
+});
+
+describe("year helpers", () => {
+  it("recognises YYYY keys only", () => {
+    expect(isYearKey("2026")).toBe(true);
+    expect(isYearKey("2026-09")).toBe(false);
+    expect(isYearKey("26")).toBe(false);
+    expect(isYearKey("")).toBe(false);
+  });
+
+  it("gives a half-open ISO range for a calendar year", () => {
+    expect(yearRange("2026")).toEqual({ from: "2026-01-01", to: "2027-01-01" });
+  });
+
+  it("derives the year of a date", () => {
+    expect(yearOf("2026-09-16")).toBe("2026");
+  });
+});
+
+describe("God's share", () => {
+  it("defaults to ten percent, snapped to cents", () => {
+    expect(DEFAULT_GODS_SHARE_RATE).toBe(0.1);
+    expect(defaultGodsShare(1000)).toBe(100);
+    expect(defaultGodsShare(1234.56)).toBe(123.46);
+    expect(defaultGodsShare(0.04)).toBe(0);
+  });
+
+  it("totals accrued from income, settled from expenses, and nets the remainder", () => {
+    const t = godsShareTotals([
+      tx({ kind: "income", amount: 10_000, gods_share: 1_000 }),
+      tx({ kind: "income", amount: 5_000, gods_share: 0 }),
+      tx({ kind: "income", amount: 3_000, gods_share: 250.5 }),
+      tx({ kind: "expense", amount: 500, gods_share: 500 }),
+      tx({ kind: "expense", amount: 80, gods_share: 0 }),
+    ]);
+    expect(t).toEqual({ accrued: 1_250.5, settled: 500, remaining: 750.5 });
+  });
+
+  it("is all zeros with nothing recorded", () => {
+    expect(godsShareTotals([])).toEqual({ accrued: 0, settled: 0, remaining: 0 });
+  });
+
+  it("rounds away float noise in the totals", () => {
+    const t = godsShareTotals([
+      tx({ kind: "income", amount: 1, gods_share: 0.1 }),
+      tx({ kind: "income", amount: 1, gods_share: 0.2 }),
+    ]);
+    expect(t.accrued).toBe(0.3);
+    expect(t.remaining).toBe(0.3);
   });
 });

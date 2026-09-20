@@ -5,10 +5,24 @@
  */
 
 const MONTH_KEY_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const YEAR_KEY_RE = /^\d{4}$/;
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export function isMonthKey(value: string): boolean {
   return MONTH_KEY_RE.test(value);
+}
+
+export function isYearKey(value: string): boolean {
+  return YEAR_KEY_RE.test(value);
+}
+
+/** `[from, to)` — the year's first day and the NEXT year's first day. */
+export function yearRange(year: string): { from: string; to: string } {
+  return { from: `${year}-01-01`, to: `${Number(year) + 1}-01-01` };
+}
+
+export function yearOf(isoDate: string): string {
+  return isoDate.slice(0, 4);
 }
 
 /** True for a real calendar date written as YYYY-MM-DD (2026-02-30 is not). */

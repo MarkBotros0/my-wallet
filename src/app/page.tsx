@@ -1,10 +1,6 @@
-import PlaceholderPage from "./components/PlaceholderPage";
+import HomePage from "./components/home/HomePage";
 
-export default function HomePage() {
-  return (
-    <PlaceholderPage
-      title="Home"
-      blurb="Your balance, this month's income and spending, at a glance."
-    />
-  );
+/** Home: a thin server component; the layout's metadata already names the app. */
+export default function HomeRoute() {
+  return <HomePage />;
 }

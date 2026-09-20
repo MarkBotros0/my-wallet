@@ -7,19 +7,15 @@ import { useAuth } from "./AuthProvider";
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/transactions", label: "Transactions" },
+  { href: "/clients", label: "Clients" },
   { href: "/real-estate", label: "Real Estate" },
-  { href: "/reports", label: "Reports" },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated, isAdmin, logout } = useAuth();
-
-  // Users is NOT one of these. It is an account action rather than a
-  // destination in the app — it sits with Log out at the right-hand end.
+  const { user, isAuthenticated, logout } = useAuth();
   const links = NAV_LINKS;
-  const onAdmin = pathname.startsWith("/admin");
 
   const handleLogout = () => {
     logout();
@@ -49,8 +45,11 @@ export default function Navbar() {
             <Link
               key={link.href}
               href={link.href}
+              // Prefix match, like the pill: /clients/abc is still "Clients".
               className={`text-sm transition-colors ${
-                pathname === link.href ? "text-accent font-medium" : "text-white/60 hover:text-white"
+                (link.href === "/" ? pathname === "/" : pathname.startsWith(link.href))
+                  ? "text-accent font-medium"
+                  : "text-white/60 hover:text-white"
               }`}
             >
               {link.label}
@@ -59,42 +58,10 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Admin only. Icon-only on mobile where it sits beside the log-out
-              icon, icon + label at md:. Height is 36px, not the usual 44px
-              target, because it has to match the log-out button it pairs
-              with: the nav row is 61px and --top-nav-clearance is that number,
-              so a taller control here silently pushes every sticky element on
-              every page out of alignment. */}
-          {isAdmin && (
-            <Link
-              href="/admin"
-              aria-label="Users"
-              title="Manage users"
-              aria-current={onAdmin ? "page" : undefined}
-              className={`flex h-9 w-9 items-center justify-center gap-1.5 rounded-md transition-colors hover:bg-white/5 hover:text-white md:w-auto md:px-2.5 ${
-                onAdmin ? "text-accent" : "text-white/60"
-              }`}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              <span className="hidden text-xs md:inline">Users</span>
-            </Link>
-          )}
-
-          {/* No "Sign in" branch: this whole bar only renders when signed in. */}
+          {/* No "Sign in" branch: this whole bar only renders when signed in.
+              The buttons here are h-9, not the usual 44px target: the nav row
+              is 61px and --top-nav-clearance is that number, so a taller
+              control silently pushes every sticky element out of alignment. */}
           <div className="hidden items-center gap-3 border-l border-white/10 pl-3 md:flex">
             <span className="max-w-[160px] truncate text-xs text-white/50" title={user?.username}>
               {user?.username}

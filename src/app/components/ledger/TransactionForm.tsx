@@ -4,15 +4,31 @@ import { FormEvent, useId, useState } from "react";
 import {
   MAX_CATEGORY_LENGTH,
   MAX_NOTE_LENGTH,
+  defaultGodsShare,
   toIsoDate,
   validateTransactionInput,
   type CategorySuggestions,
+  type ClientOption,
   type Transaction,
   type TransactionInput,
   type TransactionKind,
 } from "@/lib/ledger";
 import { parseNumber } from "@/app/lib/numbers";
-import { Field, NumberInput, Segmented, inputClass } from "../ui";
+import { CheckRow, Field, NumberInput, Segmented, Select, inputClass } from "../ui";
+
+/** What another page opens the form with: the client page sets its client, the tracker sets a settlement. */
+export interface TransactionPrefill {
+  kind?: TransactionKind;
+  client_id?: string;
+  godsShareOn?: boolean;
+  amount?: number;
+  category?: string;
+}
+
+/** God's share is set aside from income by default; an expense pays it out only when asked. */
+function defaultShareOn(kind: TransactionKind): boolean {
+  return kind === "income";
+}
 
 /**
  * Add or edit one entry. Full-screen on mobile, centred card on desktop —
@@ -21,11 +37,18 @@ import { Field, NumberInput, Segmented, inputClass } from "../ui";
  * The form holds strings while the user types and hands the parsed object to
  * `validateTransactionInput` on submit — the SAME function the API route
  * runs — so a value this form accepts is a value the server accepts.
+ *
+ * God's share: on an income, the toggle is on by default and the amount field
+ * follows 10% of the amount until the user edits it, then keeps their number.
+ * On an expense, the toggle is off by default and means "this whole expense
+ * pays God's share" — no separate field.
  */
 export default function TransactionForm({
   existing,
   defaultKind = "expense",
+  prefill,
   categories,
+  clients,
   onSave,
   onDelete,
   onClose,
@@ -33,29 +56,61 @@ export default function TransactionForm({
   /** Editing this entry; undefined means creating. */
   existing?: Transaction;
   defaultKind?: TransactionKind;
+  prefill?: TransactionPrefill;
   categories: CategorySuggestions;
+  clients: ClientOption[];
   onSave: (input: TransactionInput) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
 }) {
-  const [kind, setKind] = useState<TransactionKind>(existing?.kind ?? defaultKind);
-  const [amount, setAmount] = useState(existing ? String(existing.amount) : "");
+  const initialKind = existing?.kind ?? prefill?.kind ?? defaultKind;
+  const [kind, setKindState] = useState<TransactionKind>(initialKind);
+  const [amount, setAmount] = useState(
+    existing ? String(existing.amount) : prefill?.amount !== undefined ? String(prefill.amount) : "",
+  );
   const [date, setDate] = useState(existing?.occurred_on ?? toIsoDate(new Date()));
-  const [category, setCategory] = useState(existing?.category ?? "");
+  const [category, setCategory] = useState(existing?.category ?? prefill?.category ?? "");
   const [note, setNote] = useState(existing?.note ?? "");
+  const [clientId, setClientId] = useState(existing?.client_id ?? prefill?.client_id ?? "");
+  const [shareOn, setShareOn] = useState(
+    existing ? existing.gods_share > 0 : (prefill?.godsShareOn ?? defaultShareOn(initialKind)),
+  );
+  // The share field: once the user has typed in it, their number wins over
+  // the 10% default. An existing entry's stored share counts as typed.
+  const [share, setShare] = useState(existing && existing.gods_share > 0 ? String(existing.gods_share) : "");
+  const [shareTouched, setShareTouched] = useState(Boolean(existing && existing.gods_share > 0));
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const listId = useId();
 
+  // Switching kind changes what the share toggle means, so it goes back to
+  // that kind's default rather than carrying an answer to a different question.
+  const setKind = (next: TransactionKind) => {
+    setKindState(next);
+    setShareOn(defaultShareOn(next));
+    setShareTouched(false);
+    setShare("");
+  };
+
+  const isExpense = kind === "expense";
+  const parsedAmount = parseNumber(amount);
+  const shownShare = shareTouched ? share : parsedAmount !== null ? String(defaultGodsShare(parsedAmount)) : "";
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const parsedAmount = parseNumber(amount);
+    const godsShare = !shareOn
+      ? 0
+      : isExpense
+        ? (parsedAmount ?? NaN)
+        : (parseNumber(shownShare) ?? NaN);
     const result = validateTransactionInput({
       kind,
       amount: parsedAmount ?? NaN,
       occurred_on: date,
       category,
       note,
+      client_id: isExpense ? null : clientId || null,
+      gods_share: godsShare,
     });
     if (!result.ok) {
       setErrors(result.errors);
@@ -83,7 +138,13 @@ export default function TransactionForm({
     }
   };
 
-  const isExpense = kind === "expense";
+  // A client the form was opened with but that is not in the list (deleted
+  // meanwhile) still needs an option, or the select would silently show "No client".
+  const clientOptions = [
+    { value: "", label: "No client" },
+    ...clients.map((c) => ({ value: c.id, label: c.name })),
+    ...(clientId && !clients.some((c) => c.id === clientId) ? [{ value: clientId, label: "(removed client)" }] : []),
+  ];
 
   return (
     // z-[60], above the z-50 pill nav: the Delete button sits at the bottom of
@@ -137,6 +198,44 @@ export default function TransactionForm({
               aria-label="Date"
             />
           </Field>
+
+          {!isExpense && clientOptions.length > 1 && (
+            <Field label="Client" hint="Optional. Who this income was collected from.">
+              <Select value={clientId} onChange={setClientId} options={clientOptions} ariaLabel="Client" />
+            </Field>
+          )}
+
+          {isExpense ? (
+            <CheckRow
+              checked={shareOn}
+              onChange={setShareOn}
+              label="Pay from God's share"
+              hint="This whole expense settles God's share."
+            />
+          ) : (
+            <div className="space-y-2">
+              <CheckRow
+                checked={shareOn}
+                onChange={setShareOn}
+                label="Set aside God's share"
+                hint="10% of the amount unless you change it."
+              />
+              {shareOn && (
+                <Field label="God's share">
+                  <NumberInput
+                    value={shownShare}
+                    onChange={(v) => {
+                      setShare(v);
+                      setShareTouched(true);
+                    }}
+                    suffix="EGP"
+                    placeholder="0.00"
+                    ariaLabel="God's share"
+                  />
+                </Field>
+              )}
+            </div>
+          )}
 
           <Field label="Category" hint={`Optional. Your ${isExpense ? "expense" : "income"} categories are suggested as you type.`}>
             <input
