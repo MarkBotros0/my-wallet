@@ -275,7 +275,7 @@ export default function CapacityCalculator() {
                     <Card
                       title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
                     >
-                      <BalanceChart points={showing.monthly} buffer={shown.safetyBuffer} currency={currency} />
+                      <BalanceChart inputs={shown} sim={showing} currency={currency} />
                     </Card>
 
                     <Card title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}>

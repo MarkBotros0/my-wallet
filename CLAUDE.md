@@ -78,6 +78,7 @@ src/
     api/summary            # GET ?month — everything Home shows, in one response
     lib/api.ts             # fetchJSON (attaches token, 401 → sign out) + every typed call
     lib/ticks.ts           # niceTicks — the one axis-tick scale every chart uses
+    lib/chartLabels.ts     # placeLabels — direct labels by priority, clear of each other and the data
     lib/authStore.ts       # localStorage + presence cookie + useSyncExternalStore store
     lib/today.ts           # useToday — the phone's date, null on the server
     lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
@@ -404,7 +405,7 @@ chosen share of the starting capital still in the fund).
 
 ### The maths is pure and lives in `src/lib/capacity`
 
-No React, no Next, no DB — so it is unit-tested directly (`npm test`, 64
+No React, no Next, no DB — so it is unit-tested directly (`npm test`, 65
 tests in `src/lib/capacity`) and could run on the server unchanged. Two conventions, stated in
 `types.ts`, that every function follows:
 
@@ -487,13 +488,38 @@ value across so the number never jumps.
 
 ### The chart is hand-rolled SVG, by the dataviz rules
 
-`BalanceChart`: one series, so no legend; 2px `accent` line with a 10% wash;
-solid hairline gridlines; the buffer is the ONE dashed line (a dash means
-threshold, and it is one); the same path is redrawn in `loss` through a
-clip wherever it dips under the buffer; crosshair + tooltip on hover/touch
-with the value first; keyboard arrows move the crosshair; the year table is
-the table-view twin. It measures its container with a `ResizeObserver` so
-axis text stays 11px on a phone instead of scaling down with a viewBox.
+`BalanceChart({ inputs, sim, currency })`: one series, so no legend; 2px
+`accent` line with a 10% wash; solid hairline gridlines; the buffer is the
+ONE dashed line (a dash means threshold, and it is one); the same path is
+redrawn in `loss` through a clip wherever it dips under the buffer;
+crosshair + tooltip on hover/touch with the value first, then that month's
+flows (return, income, installment, cost — `MonthPoint` carries them);
+keyboard arrows move the crosshair; the year table is the table-view twin.
+It measures its container with a `ResizeObserver` so axis text stays 11px
+on a phone instead of scaling down with a viewBox.
+
+**It is annotated with the moments that decide the answer** (2026-09-21):
+the line starts at the capital and drops by the down payment at month 0
+(`Start 5M · down payment −824K`); a marker + label on the tightest month
+(`Lowest 501K · month 48`), or on the first breach for a failing price
+(`Runs out · month 71`, in `loss`); the end (`Ends 1.5M`), which becomes
+`Ends 1.5M = keep target` when it lands on the target — the keep target is a
+short TICK at the end, not a second line, because it only applies there; one
+label on the first installment cliff and one on each extra cost. Labels use
+`formatCompact(v, 3)` (three significant figures) and text tokens, never the
+series colour; only markers carry `accent`/`loss`.
+
+**Placement is `app/lib/chartLabels.ts::placeLabels`, pure and tested:**
+each label has a priority and a list of spots to try; greedy by priority, a
+spot must sit inside the plot and clear every placed label AND every
+obstacle — the line itself (sampled every 6px so a cliff is solid) and the
+markers. A cliff label's last resorts are rows in the wash under the whole
+stretch of line it covers, drawn with a hairline leader back to its point;
+a leader that would cross another label drops the label instead. A label
+with nowhere to go is dropped — the tooltip and the year table still carry
+it — so a phone shows the few that fit rather than a pile-up. Widths are
+estimated (`textWidth`, 0.6em per character) because SVG text cannot be
+measured before it is laid out.
 
 **Colour in the year table follows the money rule:** returns and income are
 `gain` (money in), installments and costs are `loss` (money out); balances

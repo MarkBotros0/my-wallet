@@ -106,7 +106,7 @@ export function simulate(inputs: CalculatorInputs, price: number): SimulationRes
   const downPayment = price * schedule.downPayment;
   let balance = startingCapital - downPayment;
 
-  const monthly: MonthPoint[] = [{ month: 0, balance }];
+  const monthly: MonthPoint[] = [{ month: 0, balance, returns: 0, income: 0, installment: 0, extraCost: 0 }];
   const years: YearSummary[] = [];
   let minBalance = balance;
   let firstBreach: SimulationResult["firstBreach"] = null;
@@ -148,7 +148,7 @@ export function simulate(inputs: CalculatorInputs, price: number): SimulationRes
       installments += installment;
       extraCosts += cost;
 
-      monthly.push({ month, balance });
+      monthly.push({ month, balance, returns: growth, income: due, installment, extraCost: cost });
       if (balance < lowest) lowest = balance;
       if (balance < minBalance) minBalance = balance;
       if (firstBreach === null && breaches(balance)) {

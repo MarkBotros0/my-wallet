@@ -99,6 +99,15 @@ export interface MonthPoint {
   /** 0 = right after the down payment; 1..12·years thereafter. */
   month: number;
   balance: number;
+  /**
+   * What moved the balance THIS month, so a reader can see what each step of
+   * the line is. All zero at month 0 — the down payment is on the result, not
+   * on the point. `balance = previous + returns + income − installment − extraCost`.
+   */
+  returns: number;
+  income: number;
+  installment: number;
+  extraCost: number;
 }
 
 export interface YearSummary {

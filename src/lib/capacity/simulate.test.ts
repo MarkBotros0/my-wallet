@@ -15,10 +15,31 @@ const NO_PAYMENTS: CalculatorInputs = withInputs({
 });
 
 describe("simulate — month 0", () => {
-  it("starts with capital minus the down payment", () => {
+  it("starts with capital minus the down payment, with no flows of its own", () => {
     const r = simulate(REFERENCE, 8_000_000);
     expect(r.downPayment).toBe(800_000);
-    expect(r.monthly[0]).toEqual({ month: 0, balance: 4_200_000 });
+    expect(r.monthly[0]).toEqual({ month: 0, balance: 4_200_000, returns: 0, income: 0, installment: 0, extraCost: 0 });
+  });
+
+  it("carries each month's flows on its point, reconciling to the balance and the year rows", () => {
+    const r = simulate(REFERENCE, 8_000_000);
+    for (let m = 1; m < r.monthly.length; m++) {
+      const p = r.monthly[m];
+      const prev = r.monthly[m - 1].balance;
+      expect(p.balance).toBeCloseTo(prev + p.returns + p.income - p.installment - p.extraCost, 6);
+    }
+    for (const y of r.years) {
+      const months = r.monthly.filter((p) => p.month > (y.year - 1) * 12 && p.month <= y.year * 12);
+      const sum = (k: "returns" | "income" | "installment" | "extraCost") => months.reduce((a, p) => a + p[k], 0);
+      expect(sum("returns")).toBeCloseTo(y.returns, 6);
+      expect(sum("income")).toBeCloseTo(y.income, 6);
+      expect(sum("installment")).toBeCloseTo(y.installments, 6);
+      expect(sum("extraCost")).toBeCloseTo(y.extraCosts, 6);
+    }
+    // The reference plan pays yearly at year ends and maintenance at the end of year 4.
+    expect(r.monthly[11].installment).toBe(0);
+    expect(r.monthly[12].installment).toBeCloseTo(900_000, 6);
+    expect(r.monthly[48].extraCost).toBeCloseTo(640_000, 6);
   });
 
   it("is infeasible when the down payment exceeds the capital", () => {

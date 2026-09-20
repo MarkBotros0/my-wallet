@@ -36,9 +36,14 @@ export function formatSignedAmount(amount: number, currency: string): string {
   return `${sign}${formatAmount(Math.abs(amount), currency)}`;
 }
 
-/** Axis-friendly: 1,250,000 → "1.25M", 500,000 → "500K", 950 → "950". */
-export function formatCompact(amount: number): string {
-  const abs = Math.abs(amount);
+/**
+ * Axis-friendly: 1,250,000 → "1.25M", 500,000 → "500K", 950 → "950".
+ * With `significant`, the amount is first rounded to that many significant
+ * figures — a direct label wants "617K", not "616.88K" — so 999,600 at 3
+ * figures is "1M".
+ */
+export function formatCompact(amount: number, significant?: number): string {
+  const abs = significant ? Number(Math.abs(amount).toPrecision(significant)) : Math.abs(amount);
   const sign = amount < 0 ? "−" : "";
   if (abs >= 1e9) return `${sign}${trim(abs / 1e9)}B`;
   if (abs >= 1e6) return `${sign}${trim(abs / 1e6)}M`;
