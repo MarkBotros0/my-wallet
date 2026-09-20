@@ -15,7 +15,7 @@ export default function Tile({
   sub?: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-charcoal p-3">
+    <div className="surface p-3">
       <div className="text-[11px] text-white/40">{label}</div>
       <div className={`mt-0.5 truncate font-mono text-sm tabular-nums sm:text-base ${className}`}>{value}</div>
       {sub && <div className="text-[10px] text-white/30">{sub}</div>}

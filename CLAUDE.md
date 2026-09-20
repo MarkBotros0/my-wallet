@@ -117,10 +117,29 @@ codes) via `next/font/google`, exposed as `--font-outfit` /
 **`gain` and `loss` are never decoration.** Green means money came in, red
 means money went out. A label, an icon, a category — nothing else gets either.
 
-Recurring shapes: cards are `rounded-xl border border-white/10 bg-charcoal`;
-inputs `rounded-lg border-white/10 bg-white/5 text-[16px] md:text-sm` (16px
-prevents iOS zoom); primary buttons `bg-accent text-charcoal-dark font-semibold
-min-h-[44px]`; muted text `text-white/50`, `/40`, `/25`.
+Recurring shapes, each a `@utility` in `globals.css` so depth and motion are
+spelled once (added 2026-09-21):
+
+- **`surface`** — THE solid card: charcoal, the hairline, a 1px top-edge
+  highlight and one soft shadow. Every card, tile, list and period bar is
+  `surface`; never re-spell `rounded-xl border border-white/10 bg-charcoal`.
+  The dashed empty-state boxes are deliberately not surfaces.
+- **`pressable`** — a tappable card/pill: settles to `scale(0.98)` on press,
+  transform only, 150ms on the one easing.
+- **`btn-primary`** — THE primary button: accent, an accent glow, the press,
+  the disabled fade. Layout (`min-h-[44px] px-4 text-sm`) stays at the call
+  site.
+- **`shimmer`** — a loading placeholder's light sweep (`LoadingSkeleton`).
+- Motion tokens: `--ease-out-expo` and `animate-rise` / `animate-grow-x` /
+  `animate-grow-y` (300–400ms, transform/opacity only). Stagger with an
+  inline `animationDelay`, 40ms a step. **Every animation and transition is
+  cut to nothing under `prefers-reduced-motion`** by one rule in the base
+  layer — do not add per-component checks.
+- The body carries an **ambient accent glow** from above the top edge (a
+  radial gradient on `body`), so the page is a lit surface, not flat black.
+
+Inputs `rounded-lg border-white/10 bg-white/5 text-[16px] md:text-sm` (16px
+prevents iOS zoom); muted text `text-white/50`, `/40`, `/25`.
 
 ### Two CSS variables you must read, never restate
 
@@ -353,11 +372,16 @@ given, not money lost, so Home no longer has a number that can go negative
   biggest first, plus a "No client" bar so the bars add up to the headline)
   and `monthlyIncome(series, year, filter)` (sum over clients, or one, or the
   unlinked) — so the charts, the headline and the Clients page agree.
-- **Cards:** "Earned in {year}" (`gain`, money in; this month beneath) is
-  the link to Clients. "God's share" (Owed headline, Set aside · Settled
-  beneath, all positions so white) is a stretched link to the tracker with
-  a Settle button above it in the stacking order that opens
-  `/gods-share?settle=1`.
+- **Cards:** "Earned in {year}" is the page's hero figure — the display
+  sans at 36px in `gain` (money in), counting up on arrival
+  (`lib/useCountUp.ts`, instant under reduced motion) over a soft green
+  wash; this month beneath; the link to Clients. "God's share" (Owed
+  headline, Set aside · Settled beneath, all positions so white, plus a
+  meter of settled ÷ set aside in `accent`) is a stretched link to the
+  tracker with a Settle button above it in the stacking order that opens
+  `/gods-share?settle=1`. The page arrives top to bottom: `animate-rise`
+  40ms a step, bars `grow-x`, columns `grow-y` (re-keyed by the filter so
+  a new series rises again).
 - **Charts, by the dataviz rules:** one series each, so no legend and one
   hue — `gain`, because it is money in. `ClientBars` is a list with bars
   (value beside the name, so it is its own table view; each row a 44px

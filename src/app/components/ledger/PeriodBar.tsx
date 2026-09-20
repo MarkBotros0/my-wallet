@@ -18,7 +18,7 @@ export default function PeriodBar({
   unit: "month" | "year";
 }) {
   return (
-    <div className="mb-4 flex items-center justify-between rounded-xl border border-white/10 bg-charcoal px-2 py-1.5">
+    <div className="surface mb-4 flex items-center justify-between px-2 py-1.5">
       <button
         type="button"
         onClick={() => onShift(offset - 1)}

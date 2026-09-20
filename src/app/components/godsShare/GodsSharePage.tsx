@@ -89,7 +89,7 @@ export default function GodsSharePage() {
         <button
           type="button"
           onClick={() => setEditing({ mode: "settle" })}
-          className="hidden min-h-[44px] shrink-0 rounded-lg bg-accent px-4 text-sm font-semibold text-charcoal-dark transition-opacity active:opacity-70 md:block"
+          className="btn-primary hidden min-h-[44px] shrink-0 px-4 text-sm md:block"
         >
           Settle
         </button>

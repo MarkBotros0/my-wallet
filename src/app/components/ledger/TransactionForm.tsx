@@ -281,7 +281,7 @@ export default function TransactionForm({
             <button
               type="submit"
               disabled={submitting}
-              className="min-h-[44px] flex-1 rounded-lg bg-accent px-4 text-sm font-semibold text-charcoal-dark transition-opacity disabled:opacity-50"
+              className="btn-primary min-h-[44px] flex-1 px-4 text-sm"
             >
               {submitting ? "Saving…" : existing ? "Save changes" : isExpense ? "Add expense" : "Add income"}
             </button>

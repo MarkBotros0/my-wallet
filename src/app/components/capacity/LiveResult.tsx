@@ -39,7 +39,7 @@ export default function LiveResult({
         type="button"
         onClick={broken ? () => focusField(errors[0].field) : scrollToResults}
         aria-live="polite"
-        className={`flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-2 text-left shadow-lg shadow-black/40 backdrop-blur-xl transition-colors active:bg-white/5 ${
+        className={`pressable flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-2 text-left shadow-lg shadow-black/40 backdrop-blur-xl active:bg-white/5 ${
           broken ? "border-loss/30 bg-charcoal/90" : "border-white/10 bg-charcoal/85"
         }`}
       >

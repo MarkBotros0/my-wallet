@@ -27,6 +27,7 @@ export default function MonthlyChart({
   currentMonth,
   currency,
   label,
+  seriesKey,
 }: {
   /** Twelve numbers, January first. */
   values: number[];
@@ -36,6 +37,8 @@ export default function MonthlyChart({
   currency: string;
   /** Whose income this is ("All clients", a name), for the accessible name. */
   label: string;
+  /** Changes when the series does (the filter), so the columns rise again for the new one. */
+  seriesKey: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -119,14 +122,16 @@ export default function MonthlyChart({
             </g>
           ))}
 
-          {/* Columns. */}
+          {/* Columns, rising from the baseline left to right when a series arrives. */}
           {values.map((v, i) =>
             v > 0 ? (
               <path
-                key={i}
+                key={`${seriesKey}-${i}`}
                 d={column(x(i), y(v), barW, baseline - y(v))}
                 fill="#00ff88"
                 fillOpacity={hover === null || hover === i ? 0.9 : 0.55}
+                className="animate-grow-y"
+                style={{ transformBox: "fill-box", transformOrigin: "bottom", animationDelay: `${i * 25}ms` }}
               />
             ) : null,
           )}

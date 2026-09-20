@@ -14,6 +14,7 @@ import {
 import { fetchSummary } from "@/app/lib/api";
 import { formatAmount } from "@/app/lib/format";
 import { useToday } from "@/app/lib/today";
+import { useCountUp } from "@/app/lib/useCountUp";
 import { CardSkeleton, ChartSkeleton } from "../LoadingSkeleton";
 import { Card, Select } from "../ui";
 import ClientBars from "./ClientBars";
@@ -94,12 +95,13 @@ export default function HomePage() {
         </div>
       ) : (
         <div className="space-y-4">
+          {/* The page arrives top to bottom: each block 40ms after the one above it. */}
           <div className="grid gap-3 md:grid-cols-2">
             <EarningsCard data={data} />
             <ShareCard share={data.share} />
           </div>
 
-          <Card title={`By client in ${data.year}`}>
+          <Card title={`By client in ${data.year}`} className="animate-rise" style={{ animationDelay: "80ms" }}>
             {bars.length === 0 ? (
               <EmptyNote>No income in {data.year} yet — add one from Transactions.</EmptyNote>
             ) : (
@@ -107,7 +109,7 @@ export default function HomePage() {
             )}
           </Card>
 
-          <Card>
+          <Card className="animate-rise" style={{ animationDelay: "120ms" }}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-white">Over {data.year}</h2>
               <Select<string>
@@ -124,6 +126,7 @@ export default function HomePage() {
               currentMonth={data.month}
               currency={CURRENCY}
               label={filterLabel}
+              seriesKey={activeFilter}
             />
           </Card>
         </div>
@@ -132,22 +135,36 @@ export default function HomePage() {
   );
 }
 
-/** The year's income — money in, so `gain` — with this month beneath. The card is the link to Clients. */
+/**
+ * The year's income — the page's hero figure: the display sans, big, in
+ * `gain` because it is money in, counting up as it arrives, with a soft
+ * green wash behind it. This month beneath. The card is the link to Clients.
+ */
 function EarningsCard({ data }: { data: HomeSummary }) {
   const { yearIncome, monthIncome } = data;
+  const shown = useCountUp(yearIncome.income);
   return (
     <Link
       href="/clients"
-      className="block rounded-xl border border-white/10 bg-charcoal p-4 transition-colors hover:bg-white/[0.03] active:bg-white/5"
+      className="surface pressable animate-rise relative block overflow-hidden p-4 hover:bg-white/[0.03] active:bg-white/5"
     >
-      <div className="flex items-baseline justify-between">
+      {/* The wash: one soft light source behind the number, nothing else. */}
+      {yearIncome.income > 0 && (
+        <span aria-hidden className="pointer-events-none absolute -left-8 -top-12 h-36 w-56 rounded-full bg-gain/10 blur-3xl" />
+      )}
+      <div className="relative flex items-baseline justify-between">
         <h2 className="text-sm font-semibold text-white">Earned in {data.year}</h2>
         <span className="text-[11px] text-white/40">Clients ›</span>
       </div>
-      <div className={`mt-2 font-mono text-2xl tabular-nums ${yearIncome.income > 0 ? "text-gain" : "text-white/50"}`}>
-        {formatAmount(yearIncome.income, CURRENCY)}
+      <div
+        className={`relative mt-2 text-4xl font-bold leading-none tracking-tight ${
+          yearIncome.income > 0 ? "text-gain" : "text-white/50"
+        }`}
+      >
+        {formatAmount(shown, "")}
+        <span className="ml-2 text-base font-medium text-white/40">{CURRENCY}</span>
       </div>
-      <div className="mt-2 text-xs text-white/40">
+      <div className="relative mt-3 text-xs text-white/40">
         {monthName(data.month)}{" "}
         <span className={`font-mono tabular-nums ${monthIncome.income > 0 ? "text-gain/80" : "text-white/50"}`}>
           {formatAmount(monthIncome.income, "")}
@@ -161,13 +178,18 @@ function EarningsCard({ data }: { data: HomeSummary }) {
 
 /**
  * Where God's share stands, all time. Positions, so nothing here is coloured:
- * what is owed is the headline, what was set aside and settled beneath it.
- * The card links to the tracker; the Settle button, above it in the stacking
- * order, opens the tracker with the settlement form already up.
+ * what is owed is the headline, what was set aside and settled beneath it,
+ * and a meter of how much of the set-aside has been settled. The card links
+ * to the tracker; the Settle button, above it in the stacking order, opens
+ * the tracker with the settlement form already up.
  */
 function ShareCard({ share }: { share: GodsShareTotals }) {
+  const settledShare = share.accrued > 0 ? Math.min(1, Math.max(0, share.settled / share.accrued)) : 0;
   return (
-    <div className="relative rounded-xl border border-white/10 bg-charcoal p-4 transition-colors hover:bg-white/[0.03]">
+    <div
+      className="surface pressable animate-rise relative p-4 hover:bg-white/[0.03]"
+      style={{ animationDelay: "40ms" }}
+    >
       <Link
         href="/gods-share"
         className="flex items-baseline justify-between outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-accent/50"
@@ -185,10 +207,21 @@ function ShareCard({ share }: { share: GodsShareTotals }) {
           Settled <span className="font-mono tabular-nums text-white/60">{formatAmount(share.settled, "")}</span>
         </span>
       </div>
+      {share.accrued > 0 && (
+        <div className="mt-3" aria-hidden>
+          <div className="h-1.5 overflow-hidden rounded-full bg-accent/15">
+            <div
+              className="animate-grow-x h-full origin-left rounded-full bg-accent"
+              style={{ width: `${settledShare * 100}%`, animationDelay: "200ms" }}
+            />
+          </div>
+          <div className="mt-1 text-[11px] text-white/40">{Math.round(settledShare * 100)}% of what was set aside is settled</div>
+        </div>
+      )}
       {share.remaining > 0 ? (
         <Link
           href="/gods-share?settle=1"
-          className="relative z-10 mt-3 inline-flex min-h-[40px] items-center rounded-lg bg-accent px-4 text-sm font-semibold text-charcoal-dark transition-opacity active:opacity-70"
+          className="btn-primary relative z-10 mt-3 inline-flex min-h-[40px] items-center px-4 text-sm"
         >
           Settle {formatAmount(share.remaining, CURRENCY)}
         </Link>

@@ -45,7 +45,7 @@ export default function TransactionList({
               {formatSignedAmount(g.net, "")}
             </span>
           </div>
-          <ul className="overflow-hidden rounded-xl border border-white/10 bg-charcoal">
+          <ul className="surface overflow-hidden">
             {g.items.map((t) => {
               const clientName = t.client_id ? clientNames?.[t.client_id] : undefined;
               const detail = [clientName, t.note].filter(Boolean).join(" · ");

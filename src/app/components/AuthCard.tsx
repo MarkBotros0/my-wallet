@@ -11,7 +11,7 @@ export const AUTH_INPUT_CLASS =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-[16px] text-white outline-none transition-colors focus:border-accent/50 focus:ring-1 focus:ring-accent/20 md:text-sm";
 
 export const AUTH_BUTTON_CLASS =
-  "min-h-[44px] w-full rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-charcoal-dark transition-opacity disabled:opacity-50";
+  "btn-primary min-h-[44px] w-full px-4 py-2 text-sm";
 
 /** `/login` or `/register` with the `?next=` carried across, dropped when it is just the home page. */
 export function withNext(path: string, next: string): string {

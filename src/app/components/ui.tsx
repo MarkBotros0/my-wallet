@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useId, type ReactNode } from "react";
+import { createContext, useContext, useId, type CSSProperties, type ReactNode } from "react";
 import { parseNumber } from "@/app/lib/numbers";
 
 /**
@@ -17,14 +17,17 @@ export function Card({
   children,
   className = "",
   id,
+  style,
 }: {
   title?: string;
   children: ReactNode;
   className?: string;
   id?: string;
+  /** For an entrance delay (`animate-rise` + animationDelay), nothing else. */
+  style?: CSSProperties;
 }) {
   return (
-    <section id={id} className={`rounded-xl border border-white/10 bg-charcoal p-4 md:p-5 ${className}`}>
+    <section id={id} style={style} className={`surface p-4 md:p-5 ${className}`}>
       {title && <h2 className="mb-4 text-sm font-semibold text-white">{title}</h2>}
       {children}
     </section>
@@ -197,7 +200,7 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(o.value)}
-            className={`min-h-[44px] cursor-pointer rounded-full border px-4 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+            className={`pressable min-h-[44px] cursor-pointer rounded-full border px-4 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
               active
                 ? "border-accent/50 bg-accent/15 text-accent"
                 : "border-white/10 text-white/60 hover:bg-white/5 hover:text-white active:bg-white/10"

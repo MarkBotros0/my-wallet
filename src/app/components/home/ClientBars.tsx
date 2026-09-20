@@ -19,7 +19,7 @@ export default function ClientBars({ bars, currency }: { bars: ClientBar[]; curr
 
   return (
     <ul className="space-y-0.5">
-      {bars.map((b) => {
+      {bars.map((b, i) => {
         // At least a sliver, so a small client is still visibly a bar.
         const pct = max > 0 ? Math.max(1.5, (b.total / max) * 100) : 0;
         const body = (
@@ -33,9 +33,10 @@ export default function ClientBars({ bars, currency }: { bars: ClientBar[]; curr
                 </span>
               </span>
             </div>
+            {/* Grows from the baseline on arrival, each row a beat after the last. */}
             <div
-              className="mt-1.5 h-2.5 rounded-r-[4px] bg-gain/85 transition-colors group-hover:bg-gain"
-              style={{ width: `${pct}%` }}
+              className="animate-grow-x mt-1.5 h-2.5 origin-left rounded-r-[4px] bg-gain/85 transition-colors group-hover:bg-gain"
+              style={{ width: `${pct}%`, animationDelay: `${120 + i * 40}ms` }}
               aria-hidden
             />
           </>

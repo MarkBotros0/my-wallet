@@ -12,7 +12,7 @@ export default function Fab({ onClick, ariaLabel }: { onClick: () => void; ariaL
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="fixed right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-2xl font-light text-charcoal-dark shadow-lg transition-transform active:scale-95 md:hidden"
+      className="pressable fixed right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-2xl font-light text-charcoal-dark shadow-lg shadow-accent/30 md:hidden"
       style={{ bottom: "calc(var(--bottom-nav-clearance) + 12px)" }}
     >
       +

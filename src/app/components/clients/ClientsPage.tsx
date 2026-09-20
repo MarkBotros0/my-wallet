@@ -71,7 +71,7 @@ export default function ClientsPage() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="hidden min-h-[44px] shrink-0 rounded-lg bg-accent px-4 text-sm font-semibold text-charcoal-dark transition-opacity active:opacity-70 md:block"
+          className="btn-primary hidden min-h-[44px] shrink-0 px-4 text-sm md:block"
         >
           + Add client
         </button>
@@ -128,7 +128,7 @@ export default function ClientsPage() {
                 <li key={c.id}>
                   <Link
                     href={`/clients/${encodeURIComponent(c.id)}`}
-                    className="flex min-h-[64px] items-center justify-between gap-3 rounded-xl border border-white/10 bg-charcoal px-4 py-3 transition-colors hover:bg-white/[0.03] active:bg-white/5"
+                    className="surface pressable flex min-h-[64px] items-center justify-between gap-3 px-4 py-3 hover:bg-white/[0.03] active:bg-white/5"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-white">{c.name}</span>
