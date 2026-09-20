@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInstallmentShares, scheduleTotal, validateSchedule } from "./schedule";
+import { buildInstallmentShares, scheduleProblems, scheduleTotal, validateSchedule } from "./schedule";
 import type { ScheduleInput } from "./types";
 
 const equal = (over: Partial<ScheduleInput> = {}): ScheduleInput => ({
@@ -72,6 +72,18 @@ describe("schedule validation", () => {
     expect(validateSchedule(equal({ downPayment: -0.01 })).length).toBeGreaterThan(0);
     expect(validateSchedule(equal({ downPayment: 1.01 })).length).toBeGreaterThan(0);
     expect(validateSchedule(equal({ downPayment: 1 }))).toEqual([]);
+  });
+
+  it("names the field each problem is about, so the form can show it beside the input", () => {
+    expect(scheduleProblems(equal({ planYears: 16 })).map((p) => p.field)).toEqual(["schedule.planYears"]);
+    expect(scheduleProblems(equal({ downPayment: 1.01 })).map((p) => p.field)).toEqual(["schedule.downPayment"]);
+    expect(scheduleProblems(custom([0.5, 0.5])).map((p) => p.field)).toEqual(["schedule.yearShares"]);
+    expect(scheduleProblems(custom([0.3, 0.3, 0.3]))).toEqual([]);
+  });
+
+  it("keeps validateSchedule as the messages of scheduleProblems", () => {
+    const schedule = custom([0.2, 0.3, 0.3]);
+    expect(validateSchedule(schedule)).toEqual(scheduleProblems(schedule).map((p) => p.message));
   });
 });
 

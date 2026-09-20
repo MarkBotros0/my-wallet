@@ -1,11 +1,13 @@
 import {
   effectiveFromNominal,
-  validateInputs,
+  inputProblems,
   type CalculatorInputs,
   type CompoundingFrequency,
   type IncomeFrequency,
+  type InputField,
   type PaymentFrequency,
 } from "@/lib/capacity";
+import { formatPct } from "./format";
 import { parseNumber } from "./numbers";
 
 /**
@@ -53,7 +55,8 @@ export interface CapacityForm {
 
 export const DEFAULT_FORM: CapacityForm = {
   currency: "EGP",
-  startingCapital: "5000000",
+  // Grouped like the input rewrites it on blur, so the first screen matches.
+  startingCapital: "5,000,000",
   rateMode: "effective",
   effectiveRatePct: "20.33",
   nominalRatePct: "18.51",
@@ -102,37 +105,119 @@ function trimPct(n: number): string {
   return Number(n.toFixed(4)).toString();
 }
 
+/**
+ * A form field an error can point at. The custom-schedule year inputs are
+ * `year-0`, `year-1`, … for a problem with one of them; `yearPcts` is a
+ * problem with the set (the total, the count).
+ */
+export type FormField =
+  | "currency"
+  | "startingCapital"
+  | "effectiveRatePct"
+  | "nominalRatePct"
+  | "returnFeePct"
+  | "planYears"
+  | "downPaymentPct"
+  | "yearPcts"
+  | `year-${number}`
+  | "incomeAmount"
+  | "incomeIncreasePct"
+  | "maintenancePct"
+  | "maintenanceYear"
+  | "finishingPct"
+  | "finishingYear"
+  | "safetyBuffer"
+  | "keepPct"
+  | "testPrice";
+
+export interface FormError {
+  field: FormField;
+  message: string;
+}
+
+/** The page's order, so a list of errors reads top to bottom. Year fields slot in after the down payment. */
+const FIELD_ORDER: readonly FormField[] = [
+  "startingCapital",
+  "currency",
+  "effectiveRatePct",
+  "nominalRatePct",
+  "returnFeePct",
+  "planYears",
+  "downPaymentPct",
+  "yearPcts",
+  "incomeAmount",
+  "incomeIncreasePct",
+  "maintenancePct",
+  "maintenanceYear",
+  "finishingPct",
+  "finishingYear",
+  "safetyBuffer",
+  "keepPct",
+  "testPrice",
+];
+
+function fieldOrder(field: FormField): number {
+  if (field.startsWith("year-")) return FIELD_ORDER.indexOf("yearPcts") - 0.5 + Number(field.slice(5)) / 1e6;
+  return FIELD_ORDER.indexOf(field);
+}
+
+/** Where each of the engine's inputs is typed. The rate depends on the entry mode, handled in parseForm. */
+const ENGINE_FIELDS: Record<Exclude<InputField, "effectiveAnnualRate">, FormField> = {
+  startingCapital: "startingCapital",
+  safetyBuffer: "safetyBuffer",
+  returnFee: "returnFeePct",
+  minKeptShare: "keepPct",
+  "income.amount": "incomeAmount",
+  "income.annualIncrease": "incomeIncreasePct",
+  "schedule.planYears": "planYears",
+  "schedule.downPayment": "downPaymentPct",
+  "schedule.yearShares": "yearPcts",
+  "maintenance.share": "maintenancePct",
+  "maintenance.year": "maintenanceYear",
+  "finishing.share": "finishingPct",
+  "finishing.year": "finishingYear",
+};
+
 export interface ParsedForm {
   inputs: CalculatorInputs | null;
-  errors: string[];
+  /** What stops the calculator, in page order — the summary above the results. */
+  errors: FormError[];
+  /** Every problem by field, blocking or not — what each field shows beneath itself. */
+  byField: Partial<Record<FormField, string>>;
   /** Parsed separately so a bad test price does not block the main result. */
   testPrice: number | null;
-  testPriceError: string | null;
 }
 
 export function parseForm(form: CapacityForm): ParsedForm {
-  const errors: string[] = [];
+  const errors: FormError[] = [];
+  // Problems the result does not depend on (a cosmetic code, an optional extra).
+  const soft: FormError[] = [];
 
-  const required = (raw: string, label: string): number => {
+  const required = (field: FormField, raw: string, label: string): number => {
+    if (raw.trim() === "") {
+      errors.push({ field, message: `${label} is required.` });
+      return NaN;
+    }
     const n = parseNumber(raw);
-    if (n === null) errors.push(`${label} must be a number.`);
+    if (n === null) errors.push({ field, message: `${label} must be a number.` });
     return n ?? NaN;
   };
-  const optional = (raw: string, label: string): number => {
-    if (raw.trim() === "") return 0;
-    return required(raw, label);
+  const optional = (field: FormField, raw: string, label: string, blank = 0): number => {
+    if (raw.trim() === "") return blank;
+    return required(field, raw, label);
   };
 
-  const startingCapital = required(form.startingCapital, "Starting capital");
+  const startingCapital = required("startingCapital", form.startingCapital, "Starting capital");
 
   const n = Number(form.compounding) as CompoundingFrequency;
+  const rateField: FormField = form.rateMode === "effective" ? "effectiveRatePct" : "nominalRatePct";
   const effectiveAnnualRate =
     form.rateMode === "effective"
-      ? required(form.effectiveRatePct, "Return rate") / 100
-      : effectiveFromNominal(required(form.nominalRatePct, "Return rate") / 100, n);
+      ? required(rateField, form.effectiveRatePct, "Return rate") / 100
+      : effectiveFromNominal(required(rateField, form.nominalRatePct, "Return rate") / 100, n);
 
-  const planYears = required(form.planYears, "Plan length");
-  const downPayment = required(form.downPaymentPct, "Down payment") / 100;
+  const planYears = required("planYears", form.planYears, "Plan length");
+  const downPayment = required("downPaymentPct", form.downPaymentPct, "Down payment") / 100;
 
   const schedule: CalculatorInputs["schedule"] =
     form.scheduleMode === "custom"
@@ -140,7 +225,9 @@ export function parseForm(form: CapacityForm): ParsedForm {
           downPayment,
           planYears,
           mode: "custom",
-          yearShares: form.yearPcts.map((p, i) => required(p, `Year ${i + 1} share`) / 100),
+          // A cleared year field is a year with nothing due; the 100% check
+          // says whether that adds up.
+          yearShares: form.yearPcts.map((p, i) => optional(`year-${i}`, p, `Year ${i + 1} share`) / 100),
           frequency: form.frequency,
         }
       : { downPayment, planYears, mode: "equal", frequency: form.frequency };
@@ -150,36 +237,59 @@ export function parseForm(form: CapacityForm): ParsedForm {
     effectiveAnnualRate,
     schedule,
     income: {
-      amount: optional(form.incomeAmount, "Extra income"),
+      amount: optional("incomeAmount", form.incomeAmount, "Extra income"),
       frequency: form.incomeFrequency,
-      annualIncrease: optional(form.incomeIncreasePct, "Income increase") / 100,
+      annualIncrease: optional("incomeIncreasePct", form.incomeIncreasePct, "Income increase") / 100,
     },
     maintenance: {
-      share: optional(form.maintenancePct, "Maintenance deposit") / 100,
-      year: optional(form.maintenanceYear, "Maintenance year") || 1,
+      share: optional("maintenancePct", form.maintenancePct, "Maintenance deposit") / 100,
+      year: optional("maintenanceYear", form.maintenanceYear, "Maintenance year", 1),
     },
     finishing: {
-      share: optional(form.finishingPct, "Finishing cost") / 100,
-      year: optional(form.finishingYear, "Finishing year") || 1,
+      share: optional("finishingPct", form.finishingPct, "Finishing cost") / 100,
+      year: optional("finishingYear", form.finishingYear, "Finishing year", 1),
     },
-    safetyBuffer: optional(form.safetyBuffer, "Safety buffer"),
-    returnFee: optional(form.returnFeePct, "Fees on returns") / 100,
-    minKeptShare: optional(form.keepPct, "Money to keep at the end") / 100,
+    safetyBuffer: optional("safetyBuffer", form.safetyBuffer, "Safety buffer"),
+    returnFee: optional("returnFeePct", form.returnFeePct, "Fees on returns") / 100,
+    minKeptShare: optional("keepPct", form.keepPct, "Money to keep at the end") / 100,
   };
 
   // Only run the engine's own checks once every field is at least a number —
   // otherwise NaN produces a second, confusing message for the same field.
-  if (errors.length === 0) errors.push(...validateInputs(inputs));
+  if (errors.length === 0) {
+    for (const problem of inputProblems(inputs)) {
+      if (problem.field !== "effectiveAnnualRate") {
+        errors.push({ field: ENGINE_FIELDS[problem.field], message: problem.message });
+      } else if (form.rateMode === "effective") {
+        errors.push({ field: rateField, message: problem.message });
+      } else {
+        // The user typed a nominal rate; say what it works out to.
+        errors.push({
+          field: rateField,
+          message: `Equivalent effective yield is ${formatPct(effectiveAnnualRate)}; it must be between 0% and 100%.`,
+        });
+      }
+    }
+  }
+  errors.sort((a, b) => fieldOrder(a.field) - fieldOrder(b.field));
+
+  const currency = form.currency.trim().toUpperCase();
+  if (currency !== "" && !/^[A-Z]{3}$/.test(currency)) {
+    soft.push({ field: "currency", message: "Currency must be a 3-letter code like EGP." });
+  }
 
   let testPrice: number | null = null;
-  let testPriceError: string | null = null;
   if (form.testPrice.trim() !== "") {
     const p = parseNumber(form.testPrice);
-    if (p === null || p < 0) testPriceError = "Price to test must be a number.";
+    if (p === null) soft.push({ field: "testPrice", message: "Price to test must be a number." });
+    else if (p < 0) soft.push({ field: "testPrice", message: "Price to test cannot be negative." });
     else testPrice = p;
   }
 
-  return { inputs: errors.length === 0 ? inputs : null, errors, testPrice, testPriceError };
+  const byField: ParsedForm["byField"] = {};
+  for (const e of [...errors, ...soft]) byField[e.field] ??= e.message;
+
+  return { inputs: errors.length === 0 ? inputs : null, errors, byField, testPrice };
 }
 
 /**

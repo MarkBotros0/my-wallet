@@ -2,7 +2,8 @@
 
 import { MAX_PLAN_YEARS, MIN_PLAN_YEARS, type PaymentFrequency } from "@/lib/capacity";
 import { equalYearPcts, parseNumber, resizeYearPcts, type CapacityForm } from "@/app/lib/capacityForm";
-import { Field, NumberInput, Segmented } from "../ui";
+import { FieldError, Segmented } from "../ui";
+import { CalcField, useFormErrors } from "./formErrors";
 
 /** Whole-percent tolerance for "exactly 100%" as the user types (0.01 pp). */
 const TOTAL_TOLERANCE_PCT = 0.005;
@@ -20,6 +21,7 @@ export default function ScheduleEditor({
   form: CapacityForm;
   update: (patch: Partial<CapacityForm>) => void;
 }) {
+  const { errorFor } = useFormErrors();
   const years = clampYears(parseNumber(form.planYears));
   const downPct = parseNumber(form.downPaymentPct);
 
@@ -58,22 +60,34 @@ export default function ScheduleEditor({
       ? (downPct ?? 0) + form.yearPcts.reduce((a, p) => a + (parseNumber(p) ?? 0), 0)
       : 100;
   const totalOk = Math.abs(total - 100) <= TOTAL_TOLERANCE_PCT;
-  const equalEach = years && downPct !== null ? (100 - downPct) / years : null;
+  // Only worth stating for a down payment that leaves something to split;
+  // outside 0–100% the field beside it is already saying what is wrong.
+  const equalEach = years && downPct !== null && downPct >= 0 && downPct <= 100 ? (100 - downPct) / years : null;
+  // A problem with the set of years that the total row is not already showing
+  // (a negative share can still total 100%).
+  const groupError = errorFor("yearPcts");
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Plan length" hint={`${MIN_PLAN_YEARS}–${MAX_PLAN_YEARS} years`}>
-          <NumberInput value={form.planYears} onChange={changeYears} suffix="years" placeholder="8" />
-        </Field>
-        <Field label="Down payment">
-          <NumberInput
-            value={form.downPaymentPct}
-            onChange={(v) => update({ downPaymentPct: v })}
-            suffix="%"
-            placeholder="10"
-          />
-        </Field>
+        <CalcField
+          field="planYears"
+          label="Plan length"
+          hint={`${MIN_PLAN_YEARS}–${MAX_PLAN_YEARS} whole years.`}
+          value={form.planYears}
+          onChange={changeYears}
+          suffix="years"
+          placeholder="8"
+        />
+        <CalcField
+          field="downPaymentPct"
+          label="Down payment"
+          hint="Of the price, at month 0."
+          value={form.downPaymentPct}
+          onChange={(v) => update({ downPaymentPct: v })}
+          suffix="%"
+          placeholder="10"
+        />
       </div>
 
       <div>
@@ -104,28 +118,30 @@ export default function ScheduleEditor({
         <div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {form.yearPcts.map((p, i) => (
-              <Field key={i} label={`Year ${i + 1}`}>
-                <NumberInput
-                  value={p}
-                  onChange={(v) => setYearPct(i, v)}
-                  suffix="%"
-                  ariaLabel={`Year ${i + 1} share of the price`}
-                />
-              </Field>
+              <CalcField
+                key={i}
+                field={`year-${i}`}
+                label={`Year ${i + 1}`}
+                value={p}
+                onChange={(v) => setYearPct(i, v)}
+                suffix="%"
+                ariaLabel={`Year ${i + 1} share of the price`}
+              />
             ))}
           </div>
           <div
-            className={`mt-3 flex items-center justify-between rounded-lg border px-3 py-2 text-xs ${
+            className={`mt-3 flex min-h-[44px] items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs ${
               totalOk ? "border-white/10 bg-white/[0.03] text-white/60" : "border-loss/30 bg-loss/10 text-loss"
             }`}
             role="status"
           >
             <span>Down payment + years</span>
-            <span className="font-mono">
+            <span className="font-mono tabular-nums">
               {trimPct(total)}%{" "}
               {totalOk ? <span className="text-white/40">= 100%</span> : <span>— must be exactly 100%</span>}
             </span>
           </div>
+          {groupError && totalOk && <FieldError>{groupError}</FieldError>}
         </div>
       )}
 
@@ -141,7 +157,7 @@ export default function ScheduleEditor({
             { value: "monthly", label: "Monthly" },
           ]}
         />
-        <p className="mt-1.5 text-[11px] text-white/40">
+        <p className="mt-1.5 text-[11px] leading-snug text-white/40">
           A year&apos;s share is split equally across its payments; yearly installments fall at the end of
           the year.
         </p>

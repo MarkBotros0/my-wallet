@@ -1,4 +1,4 @@
-import type { PaymentFrequency, ScheduleInput } from "./types";
+import type { InputProblem, PaymentFrequency, ScheduleInput } from "./types";
 
 /**
  * The payment schedule: which fraction of the price is due in which month.
@@ -40,35 +40,49 @@ export function isWholePrice(total: number): boolean {
   return Math.abs(total - 1) <= TOTAL_TOLERANCE;
 }
 
-/** Human-readable problems with a schedule; empty when it can be simulated. */
-export function validateSchedule(schedule: ScheduleInput): string[] {
-  const errors: string[] = [];
+/** Problems with a schedule, each naming the input it is about; empty when it can be simulated. */
+export function scheduleProblems(schedule: ScheduleInput): InputProblem[] {
+  const problems: InputProblem[] = [];
   const { planYears, downPayment } = schedule;
 
   if (!Number.isInteger(planYears) || planYears < MIN_PLAN_YEARS || planYears > MAX_PLAN_YEARS) {
-    errors.push(`Plan length must be a whole number of years between ${MIN_PLAN_YEARS} and ${MAX_PLAN_YEARS}.`);
+    problems.push({
+      field: "schedule.planYears",
+      message: `Plan length must be a whole number of years between ${MIN_PLAN_YEARS} and ${MAX_PLAN_YEARS}.`,
+    });
   }
   if (!Number.isFinite(downPayment) || downPayment < 0 || downPayment > 1) {
-    errors.push("Down payment must be between 0% and 100%.");
+    problems.push({ field: "schedule.downPayment", message: "Down payment must be between 0% and 100%." });
   }
 
   if (schedule.mode === "custom") {
     const shares = schedule.yearShares ?? [];
     if (shares.length !== planYears) {
-      errors.push(`Custom schedule needs one share per year (${planYears}), got ${shares.length}.`);
+      problems.push({
+        field: "schedule.yearShares",
+        message: `Custom schedule needs one share per year (${planYears}), got ${shares.length}.`,
+      });
     }
     if (shares.some((s) => !Number.isFinite(s) || s < 0)) {
-      errors.push("A year's share cannot be negative.");
+      problems.push({ field: "schedule.yearShares", message: "A year's share cannot be negative." });
     }
     // Only meaningful once the shape is right; otherwise the message above is
     // the one to act on.
-    if (errors.length === 0 && !isWholePrice(scheduleTotal(schedule))) {
+    if (problems.length === 0 && !isWholePrice(scheduleTotal(schedule))) {
       const pct = (scheduleTotal(schedule) * 100).toFixed(2);
-      errors.push(`Down payment and yearly shares must total exactly 100% (currently ${pct}%).`);
+      problems.push({
+        field: "schedule.yearShares",
+        message: `Down payment and yearly shares must total exactly 100% (currently ${pct}%).`,
+      });
     }
   }
 
-  return errors;
+  return problems;
+}
+
+/** The same problems as plain messages. */
+export function validateSchedule(schedule: ScheduleInput): string[] {
+  return scheduleProblems(schedule).map((p) => p.message);
 }
 
 /**

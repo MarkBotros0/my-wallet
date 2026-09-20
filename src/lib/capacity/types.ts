@@ -69,6 +69,32 @@ export interface CalculatorInputs {
   minKeptShare: number;
 }
 
+/**
+ * Which input a validation problem is about — a path into CalculatorInputs.
+ * The form maps these onto its own fields so a message can sit beside the
+ * input it names instead of in a list somewhere else.
+ */
+export type InputField =
+  | "startingCapital"
+  | "effectiveAnnualRate"
+  | "safetyBuffer"
+  | "returnFee"
+  | "minKeptShare"
+  | "income.amount"
+  | "income.annualIncrease"
+  | "schedule.planYears"
+  | "schedule.downPayment"
+  | "schedule.yearShares"
+  | "maintenance.share"
+  | "maintenance.year"
+  | "finishing.share"
+  | "finishing.year";
+
+export interface InputProblem {
+  field: InputField;
+  message: string;
+}
+
 export interface MonthPoint {
   /** 0 = right after the down payment; 1..12·years thereafter. */
   month: number;

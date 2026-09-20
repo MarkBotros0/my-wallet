@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { monthlyRate } from "./rates";
 import { REFERENCE } from "./fixtures";
-import { simulate, validateInputs } from "./simulate";
+import { inputProblems, simulate, validateInputs } from "./simulate";
 import type { CalculatorInputs } from "./types";
 
 const withInputs = (over: Partial<CalculatorInputs>): CalculatorInputs => ({ ...REFERENCE, ...over });
@@ -229,5 +229,34 @@ describe("validateInputs", () => {
       schedule: { downPayment: 0.1, planYears: 2, mode: "custom", yearShares: [0.5, 0.5], frequency: "yearly" },
     });
     expect(validateInputs(bad).some((e) => /100%/.test(e))).toBe(true);
+  });
+
+  it("rejects an income increase above 100% a year", () => {
+    expect(validateInputs(withInputs({ income: { amount: 1, frequency: "yearly", annualIncrease: 1.01 } })).length).toBeGreaterThan(0);
+    expect(validateInputs(withInputs({ income: { amount: 1, frequency: "yearly", annualIncrease: 1 } }))).toEqual([]);
+  });
+
+  it("names the input each problem is about", () => {
+    const fieldsOf = (over: Partial<CalculatorInputs>) => inputProblems(withInputs(over)).map((p) => p.field);
+    expect(fieldsOf({ startingCapital: 0 })).toEqual(["startingCapital"]);
+    expect(fieldsOf({ effectiveAnnualRate: 1.01 })).toEqual(["effectiveAnnualRate"]);
+    expect(fieldsOf({ safetyBuffer: -1 })).toEqual(["safetyBuffer"]);
+    expect(fieldsOf({ returnFee: 1.5 })).toEqual(["returnFee"]);
+    expect(fieldsOf({ minKeptShare: 1.2 })).toEqual(["minKeptShare"]);
+    expect(fieldsOf({ income: { amount: -1, frequency: "yearly", annualIncrease: 2 } })).toEqual([
+      "income.amount",
+      "income.annualIncrease",
+    ]);
+    expect(fieldsOf({ maintenance: { share: 0.08, year: 9 } })).toEqual(["maintenance.year"]);
+    expect(fieldsOf({ finishing: { share: 1.5, year: 1 } })).toEqual(["finishing.share"]);
+    const shares = [0.5, 0.5, 0, 0, 0, 0, 0, 0]; // 110% with the down payment
+    expect(
+      fieldsOf({ schedule: { downPayment: 0.1, planYears: 8, mode: "custom", yearShares: shares, frequency: "yearly" } }),
+    ).toEqual(["schedule.yearShares"]);
+  });
+
+  it("keeps validateInputs as the messages of inputProblems", () => {
+    const bad = withInputs({ startingCapital: -5, safetyBuffer: -1 });
+    expect(validateInputs(bad)).toEqual(inputProblems(bad).map((p) => p.message));
   });
 });

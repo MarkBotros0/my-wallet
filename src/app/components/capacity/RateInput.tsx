@@ -15,7 +15,8 @@ import {
   type RateEntryMode,
 } from "@/app/lib/capacityForm";
 import { formatPct } from "@/app/lib/format";
-import { Field, NumberInput, Segmented, Select } from "../ui";
+import { Field, Segmented, Select } from "../ui";
+import { CalcField } from "./formErrors";
 
 const COMPOUNDING_OPTIONS = (Object.keys(COMPOUNDING_LABELS) as CompoundingOption[]).map((v) => ({
   value: v,
@@ -88,24 +89,25 @@ export default function RateInput({
       />
 
       {form.rateMode === "effective" ? (
-        <Field label="Effective annual yield" hint="What 100 grows to in a year, e.g. 20.33 for 120.33.">
-          <NumberInput
-            value={form.effectiveRatePct}
-            onChange={(v) => update({ effectiveRatePct: v })}
-            suffix="%"
-            placeholder="20.33"
-          />
-        </Field>
+        <CalcField
+          field="effectiveRatePct"
+          label="Effective annual yield"
+          hint="What 100 grows to in a year, e.g. 20.33 for 120.33. 0–100%."
+          value={form.effectiveRatePct}
+          onChange={(v) => update({ effectiveRatePct: v })}
+          suffix="%"
+          placeholder="20.33"
+        />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Nominal annual rate">
-            <NumberInput
-              value={form.nominalRatePct}
-              onChange={(v) => update({ nominalRatePct: v })}
-              suffix="%"
-              placeholder="18.51"
-            />
-          </Field>
+          <CalcField
+            field="nominalRatePct"
+            label="Nominal annual rate"
+            value={form.nominalRatePct}
+            onChange={(v) => update({ nominalRatePct: v })}
+            suffix="%"
+            placeholder="18.51"
+          />
           <Field label="Compounded">
             <Select<CompoundingOption>
               value={form.compounding}

@@ -11,9 +11,10 @@ export {
   MIN_PLAN_YEARS,
   buildInstallmentShares,
   isWholePrice,
+  scheduleProblems,
   scheduleTotal,
   validateSchedule,
   yearShares,
 } from "./schedule";
-export { isFeasible, simulate, validateInputs } from "./simulate";
+export { inputProblems, isFeasible, simulate, validateInputs } from "./simulate";
 export { DEFAULT_SENSITIVITY_DELTAS, DEFAULT_STEP, maxFeasiblePrice, sensitivity } from "./solve";

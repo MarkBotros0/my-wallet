@@ -59,19 +59,70 @@ describe("parseForm", () => {
     });
   });
 
-  it("reports a custom schedule that does not total 100%", () => {
+  it("reports a custom schedule that does not total 100% against the year fields", () => {
     const { inputs, errors } = parseForm(
       form({ planYears: "2", scheduleMode: "custom", downPaymentPct: "10", yearPcts: ["50", "50"] }),
     );
     expect(inputs).toBeNull();
-    expect(errors.some((e) => /100%/.test(e))).toBe(true);
+    expect(errors.some((e) => e.field === "yearPcts" && /100%/.test(e.message))).toBe(true);
   });
 
   it("names the field when a required number is missing or malformed", () => {
-    const { inputs, errors } = parseForm(form({ startingCapital: "", effectiveRatePct: "abc" }));
+    const { inputs, errors, byField } = parseForm(form({ startingCapital: "", effectiveRatePct: "abc" }));
     expect(inputs).toBeNull();
-    expect(errors.some((e) => /starting capital/i.test(e))).toBe(true);
-    expect(errors.some((e) => /return rate/i.test(e))).toBe(true);
+    expect(errors).toEqual([
+      { field: "startingCapital", message: expect.stringMatching(/starting capital.*required/i) },
+      { field: "effectiveRatePct", message: expect.stringMatching(/return rate.*number/i) },
+    ]);
+    expect(byField.startingCapital).toMatch(/required/i);
+    expect(byField.effectiveRatePct).toMatch(/number/i);
+  });
+
+  it("maps the engine's problems onto the form's fields", () => {
+    expect(parseForm(form({ keepPct: "120" })).errors.map((e) => e.field)).toEqual(["keepPct"]);
+    expect(parseForm(form({ incomeIncreasePct: "150" })).errors.map((e) => e.field)).toEqual(["incomeIncreasePct"]);
+    expect(parseForm(form({ maintenancePct: "8", maintenanceYear: "9" })).errors.map((e) => e.field)).toEqual([
+      "maintenanceYear",
+    ]);
+  });
+
+  it("points a return-rate problem at the rate field in use, restated for a nominal entry", () => {
+    expect(parseForm(form({ effectiveRatePct: "120" })).errors.map((e) => e.field)).toEqual(["effectiveRatePct"]);
+    // 80% nominal compounded daily is ~122% effective — the user typed 80, so say what it became.
+    const { errors } = parseForm(form({ rateMode: "nominal", nominalRatePct: "80", compounding: "365" }));
+    expect(errors).toEqual([{ field: "nominalRatePct", message: expect.stringMatching(/effective.*122\.\d+%/i) }]);
+  });
+
+  it("lists blocking errors in the order the fields appear on the page", () => {
+    // The engine reports the buffer before the schedule; the page shows the schedule first.
+    const { errors } = parseForm(form({ safetyBuffer: "-1", startingCapital: "0", downPaymentPct: "150" }));
+    expect(errors.map((e) => e.field)).toEqual(["startingCapital", "downPaymentPct", "safetyBuffer"]);
+  });
+
+  it("treats a blank custom year share as 0 and points a malformed one at that year", () => {
+    const blank = parseForm(form({ planYears: "2", scheduleMode: "custom", downPaymentPct: "50", yearPcts: ["50", ""] }));
+    expect(blank.errors).toEqual([]);
+    expect(blank.inputs!.schedule.yearShares).toEqual([0.5, 0]);
+
+    const junk = parseForm(form({ planYears: "2", scheduleMode: "custom", downPaymentPct: "50", yearPcts: ["50", "x"] }));
+    expect(junk.inputs).toBeNull();
+    expect(junk.byField["year-1"]).toMatch(/number/i);
+  });
+
+  it("takes a cost's due year as typed: blank means year 1, 0 is outside the plan", () => {
+    expect(parseForm(form({ maintenancePct: "8", maintenanceYear: "" })).inputs!.maintenance.year).toBe(1);
+    expect(parseForm(form({ maintenancePct: "8", maintenanceYear: "0" })).errors.map((e) => e.field)).toEqual([
+      "maintenanceYear",
+    ]);
+  });
+
+  it("flags a bad currency code beside its field without blocking the result", () => {
+    const { inputs, errors, byField } = parseForm(form({ currency: "E" }));
+    expect(inputs).not.toBeNull();
+    expect(errors).toEqual([]);
+    expect(byField.currency).toMatch(/3-letter/i);
+    expect(parseForm(form({ currency: "" })).byField.currency).toBeUndefined();
+    expect(parseForm(form({ currency: "egp" })).byField.currency).toBeUndefined();
   });
 
   it("treats blank optional fields as zero", () => {
@@ -92,6 +143,15 @@ describe("parseForm", () => {
   it("parses the optional test price, blank meaning none", () => {
     expect(parseForm(form({ testPrice: "" })).testPrice).toBeNull();
     expect(parseForm(form({ testPrice: "7,500,000" })).testPrice).toBe(7_500_000);
+  });
+
+  it("flags a bad test price beside its field without blocking the result", () => {
+    const negative = parseForm(form({ testPrice: "-5" }));
+    expect(negative.testPrice).toBeNull();
+    expect(negative.inputs).not.toBeNull();
+    expect(negative.errors).toEqual([]);
+    expect(negative.byField.testPrice).toMatch(/negative/i);
+    expect(parseForm(form({ testPrice: "abc" })).byField.testPrice).toMatch(/number/i);
   });
 });
 

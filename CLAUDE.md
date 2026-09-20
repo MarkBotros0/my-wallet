@@ -89,7 +89,8 @@ src/
     components/godsShare/  # GodsSharePage
     components/home/       # HomePage
     components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
-                           #   YearTable, SensitivityTable
+                           #   YearTable, SensitivityTable, formErrors (per-field errors),
+                           #   LiveResult (the phone's sticky answer strip)
 public/
   manifest.json, sw.js, icons/wallet-*
 ```
@@ -340,8 +341,8 @@ chosen share of the starting capital still in the fund).
 
 ### The maths is pure and lives in `src/lib/capacity`
 
-No React, no Next, no DB — so it is unit-tested directly (`npm test`, 70
-tests) and could run on the server unchanged. Two conventions, stated in
+No React, no Next, no DB — so it is unit-tested directly (`npm test`, 64
+tests in `src/lib/capacity`) and could run on the server unchanged. Two conventions, stated in
 `types.ts`, that every function follows:
 
 - **Every rate and share is a FRACTION** (20.33% is `0.2033`, a 10% down
@@ -386,6 +387,40 @@ total exactly 100% (±0.01 pp for float noise); switching to custom prefills
 the equal split so the user edits from a valid plan. The rate can be entered
 as an effective yield OR nominal + compounding, and switching carries the
 value across so the number never jumps.
+
+### Validation: the engine says WHAT, the form says WHERE, the hook says WHEN
+
+- **The input rules are spelled once, in the engine.** `simulate.ts::
+  inputProblems` (and `schedule.ts::scheduleProblems`) return `{ field,
+  message }` where `field` is a path into `CalculatorInputs`
+  (`"income.annualIncrease"`, `"schedule.yearShares"`, …); `validateInputs`
+  is just its messages. `parseForm` adds nothing but "is it a number" and
+  maps engine fields onto form fields (`FormField`; custom-year inputs are
+  `year-0`, `year-1`, …). It returns `errors` (blocking, in PAGE order — the
+  engine's order is not the page's) and `byField` (every problem, first
+  message per field, including the two that never block: the currency code
+  and the test price).
+- **`formErrors.tsx::useVisibleErrors` decides when a message shows:** after
+  the field has been left (validate on blur — clearing a field to retype it
+  must not flash "required"), or immediately for a field the user is not in
+  (a saved form that no longer parses). Once shown it stays while being
+  fixed. `CalcField` wires a `Field` + `NumberInput` + id + focus tracking
+  from one `field` name; sub-editors reach the hook through
+  `FormErrorsProvider`, not props. `Field`'s `error` flows to the input as
+  `aria-invalid` / `aria-describedby` through a context — a call site passes
+  `error` to the Field and nothing to the input. Two narrow fields in a row
+  (`CostRow`, `CapitalRow`) share ONE error line beneath the pair via
+  `errorId`.
+- **The last valid result stays on screen, dimmed**, while the form does not
+  parse (`lastInputs`, adjusted during render — not an effect), with the
+  error summary above it; each summary item focuses its field
+  (`focusField`, centred, respecting reduced motion).
+- **On a phone `LiveResult` sticks under the nav** (`top` reads
+  `--top-nav-clearance`, `lg:hidden`) and shows the maximum as it moves, or
+  "N inputs need fixing" — tapping scrolls to `#results` (which carries a
+  `scroll-margin-top` for the nav) or to the first bad field.
+- Money inputs use `NumberInput group`: on blur a parsed value is rewritten
+  with thousands separators; `parseNumber` strips them again.
 
 ### The chart is hand-rolled SVG, by the dataviz rules
 

@@ -1,6 +1,6 @@
 import { monthlyRate } from "./rates";
-import { buildInstallmentShares, validateSchedule } from "./schedule";
-import type { CalculatorInputs, MonthPoint, SimulationResult, YearSummary } from "./types";
+import { buildInstallmentShares, scheduleProblems } from "./schedule";
+import type { CalculatorInputs, InputProblem, MonthPoint, SimulationResult, YearSummary } from "./types";
 
 /**
  * The month-by-month engine.
@@ -24,49 +24,65 @@ import type { CalculatorInputs, MonthPoint, SimulationResult, YearSummary } from
 /** Float noise guard: a balance this close to the buffer counts as on it. */
 const EPSILON = 1e-6;
 
-/** Problems with the inputs that make a simulation meaningless; empty when fine. */
-export function validateInputs(inputs: CalculatorInputs): string[] {
-  const errors: string[] = [];
+/**
+ * Problems with the inputs that make a simulation meaningless, each naming
+ * the input it is about; empty when fine. This is THE place the input rules
+ * are spelled — the form maps the fields onto its own and adds nothing but
+ * "is it a number".
+ */
+export function inputProblems(inputs: CalculatorInputs): InputProblem[] {
+  const problems: InputProblem[] = [];
   const { startingCapital, effectiveAnnualRate, income, safetyBuffer, returnFee, schedule } = inputs;
 
   if (!Number.isFinite(startingCapital) || startingCapital <= 0) {
-    errors.push("Starting capital must be greater than zero.");
+    problems.push({ field: "startingCapital", message: "Starting capital must be greater than zero." });
   }
   if (!Number.isFinite(effectiveAnnualRate) || effectiveAnnualRate < 0 || effectiveAnnualRate > 1) {
-    errors.push("Return rate must be between 0% and 100%.");
+    problems.push({ field: "effectiveAnnualRate", message: "Return rate must be between 0% and 100%." });
   }
   if (!Number.isFinite(safetyBuffer) || safetyBuffer < 0) {
-    errors.push("Safety buffer cannot be negative.");
+    problems.push({ field: "safetyBuffer", message: "Safety buffer cannot be negative." });
   }
   if (!Number.isFinite(returnFee) || returnFee < 0 || returnFee > 1) {
-    errors.push("Fees on returns must be between 0% and 100%.");
+    problems.push({ field: "returnFee", message: "Fees on returns must be between 0% and 100%." });
   }
   if (!Number.isFinite(inputs.minKeptShare) || inputs.minKeptShare < 0 || inputs.minKeptShare > 1) {
-    errors.push("Money to keep at the end must be between 0% and 100% of the starting capital.");
+    problems.push({
+      field: "minKeptShare",
+      message: "Money to keep at the end must be between 0% and 100% of the starting capital.",
+    });
   }
   if (!Number.isFinite(income.amount) || income.amount < 0) {
-    errors.push("Extra income cannot be negative.");
+    problems.push({ field: "income.amount", message: "Extra income cannot be negative." });
   }
-  if (!Number.isFinite(income.annualIncrease) || income.annualIncrease < 0) {
-    errors.push("Income increase cannot be negative.");
+  if (!Number.isFinite(income.annualIncrease) || income.annualIncrease < 0 || income.annualIncrease > 1) {
+    problems.push({ field: "income.annualIncrease", message: "Income increase must be between 0% and 100% a year." });
   }
 
-  errors.push(...validateSchedule(schedule));
+  problems.push(...scheduleProblems(schedule));
 
-  for (const [label, cost] of [
-    ["Maintenance deposit", inputs.maintenance],
-    ["Finishing cost", inputs.finishing],
+  for (const [key, label, cost] of [
+    ["maintenance", "Maintenance deposit", inputs.maintenance],
+    ["finishing", "Finishing cost", inputs.finishing],
   ] as const) {
     if (!Number.isFinite(cost.share) || cost.share < 0 || cost.share > 1) {
-      errors.push(`${label} must be between 0% and 100% of the price.`);
+      problems.push({ field: `${key}.share`, message: `${label} must be between 0% and 100% of the price.` });
     } else if (cost.share > 0) {
       if (!Number.isInteger(cost.year) || cost.year < 1 || cost.year > schedule.planYears) {
-        errors.push(`${label} is due in year ${cost.year}, outside the ${schedule.planYears}-year plan.`);
+        problems.push({
+          field: `${key}.year`,
+          message: `${label} is due in year ${cost.year}; it must be a whole year from 1 to ${schedule.planYears}.`,
+        });
       }
     }
   }
 
-  return errors;
+  return problems;
+}
+
+/** The same problems as plain messages. */
+export function validateInputs(inputs: CalculatorInputs): string[] {
+  return inputProblems(inputs).map((p) => p.message);
 }
 
 /** Extra costs (as a fraction of the price) due at the end of each year, index 1 … years. */
