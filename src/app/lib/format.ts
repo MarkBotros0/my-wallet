@@ -59,3 +59,8 @@ function trim(n: number): string {
 export function formatPct(fraction: number, digits = 2): string {
   return `${(fraction * 100).toFixed(digits)}%`;
 }
+
+/** A share of a total in whole points — 0.5 → "50%" — and "<1%" for a share that is there but rounds to nothing. */
+export function formatShare(fraction: number): string {
+  return fraction > 0 && fraction < 0.005 ? "<1%" : formatPct(fraction, 0);
+}

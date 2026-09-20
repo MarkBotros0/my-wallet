@@ -83,13 +83,14 @@ src/
     lib/today.ts           # useToday — the phone's date, null on the server
     lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
     lib/capacityFormStore.ts # remembers the form per device (same pattern as authStore)
-    lib/format.ts          # formatMoney (whole units) / formatAmount (keeps piastres) / compact / pct
+    lib/format.ts          # formatMoney (whole units) / formatAmount (keeps piastres) / compact / pct / share
+    lib/initials.ts        # initials — a name's monogram ("Acme Corp" → "AC"); tested
     lib/numbers.ts         # parseNumber — "5,000,000" → 5000000
     components/            # AuthProvider, AuthCard, Navbar, BottomTabBar, Fab, skeletons
     components/ui.tsx      # Card, Field, NumberInput, Segmented, Select, CheckRow, Stat — the form kit
     components/ledger/     # LedgerPage (month view), TransactionForm (THE entry form),
                            #   TransactionList, PeriodBar (‹ month/year ›), Tile
-    components/clients/    # ClientsPage, ClientPage, ClientForm
+    components/clients/    # ClientsPage (hero + roster), YearSplitBar, ClientPage, ClientForm
     components/godsShare/  # GodsSharePage
     components/home/       # HomePage + ClientBars (by client), MonthlyChart (over the year)
     components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
@@ -350,8 +351,7 @@ by default and means the WHOLE expense settles (`gods_share = amount`).
 Switching kind resets the toggle to that kind's default — the two toggles
 answer different questions.
 
-Pages: `/clients` (year bar, one card per client with the year's total from a
-per-client SUM in SQL), `/clients/[id]` (the year's income rows; tiles derive
+Pages: `/clients` (see *The Clients page* below), `/clients/[id]` (the year's income rows; tiles derive
 from that list — the list IS the year), `/gods-share` (Set aside / Settled /
 Remaining + settlements; "Settle" prefills an expense at the remaining
 amount with the share toggle on — that toggle, not a label, is what makes
@@ -362,6 +362,37 @@ Settle button — and closing it drops the flag). `useToday` (`lib/today.ts`),
 **Colour follows the money rule here too:** a client's year total is `gain`
 (money in), a settlement row is `loss` (money out), the share on an income
 row and every tracker tile are positions and stay muted/white.
+
+### The Clients page — the year, and who made it (redesigned 2026-09-21)
+
+`ClientsPage` is one hero and one roster, in Home's grammar, so the page
+has hierarchy instead of three equal tiles over a stack of identical cards:
+
+- **The hero** is the year's income — `text-4xl md:text-5xl` in `gain`,
+  counting up (`useCountUp`) over the same soft green wash as Home's
+  "Earned in" card, so the number the user tapped through from looks the
+  same here. Beneath it, **`YearSplitBar`**: how the year splits across
+  clients, one segment each in the roster's order, all `gain` (one series,
+  all money in) with 2px gaps doing the separating, and the income with no
+  client last at `gain/25`. Its segments are `lib/ledger/summary.ts::
+  clientBars` — the same helper as Home's bars, so it adds up to the
+  headline. Then one caption: God's share · entries · "N with no client".
+- **The roster** is one `surface` with `divide-y` rows, not a card per
+  client: a monogram (`lib/initials.ts`, neutral white tint — never
+  `gain`/`loss`/`accent`), the name, `"50% of 2026 · 8 entries"`
+  (`formatShare`: whole points, `<1%` for a client that rounds to nothing),
+  the total in `gain`, a `›`. A client with nothing this year keeps its row
+  at the bottom (the server's sort) and dims. Per-client God's share is NOT
+  on the row — the hero has the year's total, the client's page its own.
+- **Whole units.** This page uses `formatMoney` (no decimals) — Mark's
+  explicit ask, 2026-09-21 — the one exception to the ledger's
+  `formatAmount` rule: the roster compares clients, and piastres are noise
+  at that distance. `/clients/[id]` and its `TransactionList` still keep
+  them.
+- Arrival is one sequence, like Home: hero rises (0ms) → count-up → bar
+  grows (200ms) → roster rises (80ms). Rows do not stagger. The route's
+  `loading.tsx` and the in-page skeleton are `ChartSkeleton` +
+  `ListSkeleton` (the grouped-list shape, in `LoadingSkeleton.tsx`).
 
 ## Home — earnings and God's share
 

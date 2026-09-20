@@ -30,3 +30,21 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
     </div>
   );
 }
+
+/** A grouped list — one card, divided rows, a monogram circle each — the Clients roster's shape. */
+export function ListSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="shimmer divide-y divide-white/5 overflow-hidden rounded-xl border border-white/5 bg-white/[0.04]">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex h-16 items-center gap-3 px-4">
+          <div className="h-9 w-9 shrink-0 rounded-full bg-white/10" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3.5 w-28 rounded bg-white/10" />
+            <div className="h-3 w-20 rounded bg-white/10" />
+          </div>
+          <div className="h-3.5 w-16 rounded bg-white/10" />
+        </div>
+      ))}
+    </div>
+  );
+}
