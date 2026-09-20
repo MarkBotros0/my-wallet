@@ -196,22 +196,54 @@ describe("simulate — feasibility and breaches", () => {
 });
 
 describe("simulate — year table", () => {
-  it("chains each year's closing balance into the next year's opening", () => {
+  it("opens year 1 on the starting capital and chains each closing into the next opening", () => {
     const r = simulate(withInputs({ schedule: { ...REFERENCE.schedule, frequency: "monthly" } }), 8_000_000);
     expect(r.years).toHaveLength(8);
-    expect(r.years[0].opening).toBe(r.monthly[0].balance);
+    expect(r.years[0].opening).toBe(REFERENCE.startingCapital);
+    expect(r.years[0].opening - r.years[0].downPayment).toBe(r.monthly[0].balance);
     for (let i = 1; i < r.years.length; i++) {
       expect(r.years[i].opening).toBe(r.years[i - 1].closing);
     }
     expect(r.years[7].closing).toBe(r.finalBalance);
   });
 
-  it("balances every row: opening + returns + income − installments − extra costs = closing", () => {
+  it("puts the down payment on year 1 only", () => {
+    const r = simulate(REFERENCE, 8_000_000);
+    expect(r.years[0].downPayment).toBe(r.downPayment);
+    expect(r.years.slice(1).every((y) => y.downPayment === 0)).toBe(true);
+  });
+
+  it("balances every row: opening + returns + income − down payment − installments − extra costs = closing", () => {
     const r = simulate(withInputs({ schedule: { ...REFERENCE.schedule, frequency: "quarterly" } }), 8_000_000);
     for (const y of r.years) {
-      expect(y.opening + y.returns + y.income - y.installments - y.extraCosts).toBeCloseTo(y.closing, 6);
+      expect(y.opening + y.returns + y.income - y.downPayment - y.installments - y.extraCosts).toBeCloseTo(
+        y.closing,
+        6,
+      );
       expect(y.lowest).toBeLessThanOrEqual(y.closing + 1e-9);
     }
+  });
+
+  it("flags year 1 when the down payment alone drops the fund below the buffer", () => {
+    // 60% down on 1,000,000 leaves 400,000 at month 0, under the 500,000
+    // buffer; 200,000 a month of income lifts every later month back above
+    // it, so the only breach is the one right after the down payment.
+    const r = simulate(
+      withInputs({
+        startingCapital: 1_000_000,
+        safetyBuffer: 500_000,
+        schedule: { downPayment: 0.6, planYears: 2, mode: "equal", frequency: "yearly" },
+        income: { amount: 200_000, frequency: "monthly", annualIncrease: 0 },
+        maintenance: { share: 0, year: 1 },
+        finishing: { share: 0, year: 1 },
+      }),
+      1_000_000,
+    );
+    expect(r.monthly[0].balance).toBe(400_000);
+    expect(r.monthly.slice(1).every((p) => p.balance >= 500_000)).toBe(true);
+    expect(r.years[0].lowest).toBe(400_000);
+    expect(r.years[0].breached).toBe(true);
+    expect(r.years[1].breached).toBe(false);
   });
 
   it("sums installments across years to the total owed after the down payment", () => {

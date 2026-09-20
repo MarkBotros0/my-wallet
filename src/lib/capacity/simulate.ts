@@ -118,12 +118,14 @@ export function simulate(inputs: CalculatorInputs, price: number): SimulationRes
   }
 
   for (let year = 1; year <= schedule.planYears; year++) {
-    const opening = balance;
+    // The down payment is year 1's: that row opens on the capital itself and
+    // its lowest balance includes the moment right after the payment.
+    const opening = year === 1 ? startingCapital : balance;
     let returns = 0;
     let incomeAdded = 0;
     let installments = 0;
     let extraCosts = 0;
-    let lowest = Number.POSITIVE_INFINITY;
+    let lowest = year === 1 ? balance : Number.POSITIVE_INFINITY;
 
     // The income amount steps up once per year, not once per payment.
     const incomeThisYear = income.amount * Math.pow(1 + income.annualIncrease, year - 1);
@@ -160,6 +162,7 @@ export function simulate(inputs: CalculatorInputs, price: number): SimulationRes
     years.push({
       year,
       opening,
+      downPayment: year === 1 ? downPayment : 0,
       returns,
       income: incomeAdded,
       installments,

@@ -110,15 +110,28 @@ export interface MonthPoint {
   extraCost: number;
 }
 
+/**
+ * One year of the plan as a ledger row. Every row reconciles:
+ * `opening + returns + income − downPayment − installments − extraCosts = closing`.
+ * The down payment is a YEAR-1 flow: year 1 opens on the starting capital
+ * (before the down payment) so the reader sees where they actually began;
+ * every later year opens on the previous closing.
+ */
 export interface YearSummary {
   year: number;
   opening: number;
+  /** The plan's down payment on year 1, 0 on every later year. */
+  downPayment: number;
   returns: number;
   income: number;
   installments: number;
   extraCosts: number;
   closing: number;
-  /** Lowest end-of-month balance seen during the year. */
+  /**
+   * Lowest end-of-month balance seen during the year. Year 1 includes the
+   * balance right after the down payment (month 0), since that payment is
+   * this row's.
+   */
   lowest: number;
   breached: boolean;
 }

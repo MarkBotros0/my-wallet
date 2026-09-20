@@ -576,10 +576,24 @@ it — so a phone shows the few that fit rather than a pile-up. Widths are
 estimated (`textWidth`, 0.6em per character) because SVG text cannot be
 measured before it is laid out.
 
-**Colour in the year table follows the money rule:** returns and income are
-`gain` (money in), installments and costs are `loss` (money out); balances
-are positions and stay neutral; a year whose lowest balance breaches the
-buffer is tinted `loss` — a real bad outcome.
+**The year table is a story, not a grid** (reshaped 2026-09-21). On a phone
+each year is one card read top to bottom: Opening → **Paid this year** (down
+payment, installments, extra costs; zero rows hidden) → **Covered by** (fund
+returns, income, and *From savings* for the rest — or *Left in savings* when
+returns + income covered more than was paid) → Closing → Lowest. `paid` and
+`fromSavings` (= opening − closing) are derived in `YearTable` from the row;
+the engine's reconciliation test is what keeps them honest. To make the
+down payment visible, **it is a year-1 flow**: `YearSummary.downPayment` is
+the plan's down payment on year 1 and 0 after, year 1's `opening` is the
+starting capital (before the payment), and year 1's `lowest` includes the
+month-0 balance, so a down payment that alone breaches the buffer flags
+the year. On a desktop the table lays the same ledger across one row, with
+a Down payment column and no savings column (opening and closing are side
+by side already). **Colour follows the money rule:** returns and income are
+`gain` (money in), the down payment, installments and costs are `loss`
+(money out); balances and the savings row are positions and stay neutral;
+a year whose lowest balance breaches the buffer is tinted `loss` — a real
+bad outcome.
 
 **Preview-pane artefact worth knowing:** this page is large enough that React
 streams it in a Suspense boundary (`<div hidden id="S:0">`) and reveals it via
