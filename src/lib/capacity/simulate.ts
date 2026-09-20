@@ -49,7 +49,7 @@ export function inputProblems(inputs: CalculatorInputs): InputProblem[] {
   if (!Number.isFinite(inputs.minKeptShare) || inputs.minKeptShare < 0 || inputs.minKeptShare > 1) {
     problems.push({
       field: "minKeptShare",
-      message: "Money to keep at the end must be between 0% and 100% of the starting capital.",
+      message: "Savings to keep at the end must be between 0% and 100% of the starting capital.",
     });
   }
   if (!Number.isFinite(income.amount) || income.amount < 0) {

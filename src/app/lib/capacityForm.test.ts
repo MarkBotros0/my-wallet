@@ -94,9 +94,10 @@ describe("parseForm", () => {
   });
 
   it("lists blocking errors in the order the fields appear on the page", () => {
-    // The engine reports the buffer before the schedule; the page shows the schedule first.
-    const { errors } = parseForm(form({ safetyBuffer: "-1", startingCapital: "0", downPaymentPct: "150" }));
-    expect(errors.map((e) => e.field)).toEqual(["startingCapital", "downPaymentPct", "safetyBuffer"]);
+    // The engine reports the buffer before the fee on returns; the page shows
+    // the fee first, then the "what must stay in the fund" card, then the plan.
+    const { errors } = parseForm(form({ safetyBuffer: "-1", keepPct: "120", returnFeePct: "150", downPaymentPct: "150" }));
+    expect(errors.map((e) => e.field)).toEqual(["returnFeePct", "safetyBuffer", "keepPct", "downPaymentPct"]);
   });
 
   it("treats a blank custom year share as 0 and points a malformed one at that year", () => {

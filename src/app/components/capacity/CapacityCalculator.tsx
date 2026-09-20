@@ -111,6 +111,32 @@ export default function CapacityCalculator() {
               </div>
             </Card>
 
+            {/* The two floors on the fund — one during the plan, one at its
+                end — right under the capital they are measured against. */}
+            <Card title="What must stay in the fund">
+              <div className="space-y-4">
+                <CalcField
+                  field="safetyBuffer"
+                  label="Safety buffer"
+                  hint="The fund must never drop below this during the plan. 0 for none."
+                  group
+                  value={form.safetyBuffer}
+                  onChange={(v) => update({ safetyBuffer: v })}
+                  suffix={currency}
+                  placeholder="0"
+                />
+                <CalcField
+                  field="keepPct"
+                  label="Savings to keep at the end"
+                  hint="Of your starting capital, how much must still be in the fund after the last installment — 30 means keep 30% of it. 0 means it can all go into the property."
+                  value={form.keepPct}
+                  onChange={(v) => update({ keepPct: v })}
+                  suffix="% of capital"
+                  placeholder="0"
+                />
+              </div>
+            </Card>
+
             <Card title="Payment plan">
               <ScheduleEditor form={form} update={update} />
             </Card>
@@ -155,7 +181,7 @@ export default function CapacityCalculator() {
               </div>
             </Card>
 
-            <Card title="Extra costs & safety">
+            <Card title="Extra costs">
               <div className="space-y-4">
                 <CostRow
                   label="Maintenance deposit"
@@ -178,25 +204,6 @@ export default function CapacityCalculator() {
                 <p className="-mt-2 text-[11px] leading-snug text-white/40">
                   Both are a percentage of the price, charged at the end of the year they are due.
                 </p>
-                <CalcField
-                  field="safetyBuffer"
-                  label="Safety buffer"
-                  hint="The fund must never drop below this. 0 for none."
-                  group
-                  value={form.safetyBuffer}
-                  onChange={(v) => update({ safetyBuffer: v })}
-                  suffix={currency}
-                  placeholder="0"
-                />
-                <CalcField
-                  field="keepPct"
-                  label="Keep at the end of the plan"
-                  hint="Share of your starting capital that must still be in the fund once the last installment is paid. 0 for no requirement."
-                  value={form.keepPct}
-                  onChange={(v) => update({ keepPct: v })}
-                  suffix="% of capital"
-                  placeholder="0"
-                />
               </div>
             </Card>
           </div>

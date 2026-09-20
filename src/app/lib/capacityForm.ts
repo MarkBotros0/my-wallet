@@ -142,6 +142,8 @@ const FIELD_ORDER: readonly FormField[] = [
   "effectiveRatePct",
   "nominalRatePct",
   "returnFeePct",
+  "safetyBuffer",
+  "keepPct",
   "planYears",
   "downPaymentPct",
   "yearPcts",
@@ -151,8 +153,6 @@ const FIELD_ORDER: readonly FormField[] = [
   "maintenanceYear",
   "finishingPct",
   "finishingYear",
-  "safetyBuffer",
-  "keepPct",
   "testPrice",
 ];
 
@@ -251,7 +251,7 @@ export function parseForm(form: CapacityForm): ParsedForm {
     },
     safetyBuffer: optional("safetyBuffer", form.safetyBuffer, "Safety buffer"),
     returnFee: optional("returnFeePct", form.returnFeePct, "Fees on returns") / 100,
-    minKeptShare: optional("keepPct", form.keepPct, "Money to keep at the end") / 100,
+    minKeptShare: optional("keepPct", form.keepPct, "Savings to keep at the end") / 100,
   };
 
   // Only run the engine's own checks once every field is at least a number —
