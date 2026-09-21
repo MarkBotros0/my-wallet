@@ -43,3 +43,47 @@ export function validateCredentials(raw: unknown): CredentialsResult {
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, value: { username, password } };
 }
+
+// ---------------------------------------------------------------------------
+// Changing a password
+// ---------------------------------------------------------------------------
+
+export interface PasswordChange {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export type PasswordChangeResult =
+  | { ok: true; value: PasswordChange }
+  | { ok: false; errors: string[] };
+
+/**
+ * The rules for PUT /api/auth/password, shared with the account form the same
+ * way validateCredentials is shared with sign-up. Whether the current
+ * password is RIGHT is the server's question (it has the hash); this only
+ * asks whether the pair is worth sending.
+ */
+export function validatePasswordChange(raw: unknown): PasswordChangeResult {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, errors: ["Password change must be an object."] };
+  }
+  const src = raw as Record<string, unknown>;
+  const errors: string[] = [];
+
+  // Neither is trimmed, for the same reason as sign-up: login compares what
+  // was typed, so the change must store what was typed.
+  const currentPassword = typeof src.currentPassword === "string" ? src.currentPassword : "";
+  const newPassword = typeof src.newPassword === "string" ? src.newPassword : "";
+
+  if (!currentPassword) {
+    errors.push("Enter your current password.");
+  }
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    errors.push(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  } else if (newPassword === currentPassword) {
+    errors.push("The new password must differ from the current one.");
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, value: { currentPassword, newPassword } };
+}

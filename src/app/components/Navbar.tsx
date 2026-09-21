@@ -63,9 +63,16 @@ export default function Navbar() {
               is 61px and --top-nav-clearance is that number, so a taller
               control silently pushes every sticky element out of alignment. */}
           <div className="hidden items-center gap-3 border-l border-white/10 pl-3 md:flex">
-            <span className="max-w-[160px] truncate text-xs text-white/50" title={user?.username}>
+            {/* The username is the way to the account page (change password). */}
+            <Link
+              href="/account"
+              title={user?.username}
+              className={`max-w-[160px] truncate font-mono text-xs transition-colors ${
+                pathname.startsWith("/account") ? "text-accent" : "text-white/50 hover:text-white"
+              }`}
+            >
               {user?.username}
-            </span>
+            </Link>
             <button
               onClick={handleLogout}
               className="rounded-md px-2 py-1 text-xs text-white/60 transition-colors hover:bg-white/5 hover:text-white"
@@ -73,6 +80,31 @@ export default function Navbar() {
               Logout
             </button>
           </div>
+          {/* On a phone the username is not shown, so the account page gets
+              an icon of its own beside Logout — the same h-9 for the same
+              reason. Its pathname check is the pill's prefix match. */}
+          <Link
+            href="/account"
+            aria-label="Account"
+            title={user?.username ? `Account (${user.username})` : "Account"}
+            className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-white/5 hover:text-white md:hidden ${
+              pathname.startsWith("/account") ? "text-accent" : "text-white/60"
+            }`}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </Link>
           <button
             onClick={handleLogout}
             aria-label="Log out"

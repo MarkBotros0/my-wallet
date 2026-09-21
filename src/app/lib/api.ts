@@ -1,4 +1,5 @@
 import { getStoredToken, notifyUnauthorized } from "../components/AuthProvider";
+import type { PasswordChange } from "@/lib/account/validate";
 import type {
   Client,
   ClientInput,
@@ -52,6 +53,17 @@ export async function fetchJSON<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+// ---- Account ----
+
+/** Change the signed-in user's password; the current one is proven server-side. */
+export async function changePassword(input: PasswordChange): Promise<{ ok: true }> {
+  return fetchJSON(`${BASE}/auth/password`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
 // ---- Transactions ledger ----

@@ -71,7 +71,9 @@ src/
     gods-share/            # God's share — set aside / settled / remaining, Settle
     real-estate/           # Real Estate — the buying-capacity calculator
     login/, register/      # the two signed-out pages, both on AuthCard
-    api/auth/{login,register,me}  # POST login + register are the public routes, GET me
+    account/               # Account — who is signed in, change password
+    api/auth/{login,register,me,password}  # POST login + register are the public routes,
+                           #   GET me, PUT password (current + new)
     api/transactions[/[id]]  # GET ?month · POST · PUT · DELETE, all user-scoped
     api/clients[/[id]]     # GET ?year · POST · PUT · DELETE (unlinks) · GET {id}?year
     api/gods-share         # GET totals + settlements
@@ -87,6 +89,7 @@ src/
     lib/initials.ts        # initials — a name's monogram ("Acme Corp" → "AC"); tested
     lib/numbers.ts         # parseNumber — "5,000,000" → 5000000
     components/            # AuthProvider, AuthCard, Navbar, BottomTabBar, Fab, skeletons
+    components/account/    # AccountPage (the change-password form)
     components/ui.tsx      # Card, Field, NumberInput, Segmented, Select, CheckRow, Stat — the form kit
     components/ledger/     # LedgerPage (month view), TransactionForm (THE entry form),
                            #   TransactionList, PeriodBar (‹ month/year ›), Tile
@@ -240,6 +243,20 @@ sign-up is what signs in). A taken username is a `409` from the `UNIQUE`
 violation, not a pre-select, so two racing sign-ups cannot both win.
 `register` returns exactly the login response (`access_token`, `user`), so
 `AuthProvider` stores both through one `authenticate` helper.
+
+**Changing a password (added 2026-09-21):** `PUT /api/auth/password` with
+`{ currentPassword, newPassword }`, gated like every other route (not in
+`PUBLIC_ENDPOINTS`), verifies the current password against the row before
+writing the new hash. The same validator is on both sides again —
+`validatePasswordChange` (current required, new ≥ 8 and different, neither
+trimmed). A wrong current password is a **400, never a 401** — `fetchJSON`
+signs the user out on any 401, and a typo must not. The page is `/account`
+(username in the desktop nav, a user icon beside Logout on the phone), with
+a confirm field because there is no recovery. **Only the hash changes:**
+tokens are 30-day JWTs with no revocation, so other devices stay signed in
+until their token expires — chosen over a `password_changed_at` + `iat`
+check to stay simple; that is the upgrade if a lost phone ever needs
+locking out.
 
 **Logout wipes Cache Storage** (`clearStoredAuth`). `sw.js` falls back to
 cache offline, so without the wipe a signed-out shared phone could re-serve
@@ -629,9 +646,10 @@ several `gh` accounts and the wrong one gets a 403 on `MarkBotros0/my-wallet`.
 
 ## Deliberately missing (so far)
 
-- Self-service password change, password recovery, account deletion, any
-  admin role — with no admin, a forgotten password is a row edit (see the
-  2026-09-20 open-registration spec).
+- Password recovery, account deletion, any admin role — with no admin, a
+  forgotten password is a row edit (see the 2026-09-20 open-registration
+  spec). A *known* password changes from `/account`; signing other devices
+  out when it does is not built (see *Auth*).
 - Money accounts (bank / cash — distinct from clients), recurring entries,
   budgets, multi-currency, a per-user God's share rate, expenses linked to
   a client, a Reports page — **not designed yet.** Plan before building.
