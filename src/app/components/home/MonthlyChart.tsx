@@ -14,9 +14,11 @@ const MONTH_INITIALS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "
  * Income per month of one year, as columns. One series, so no legend — the
  * card's title and filter say what is plotted. Columns are `gain` (money
  * in), at most 24px wide with a 4px rounded cap and a square foot on the
- * baseline; the biggest month is the one direct label, the rest is read from
- * the axis or the tooltip. Each month's whole band is its hit target, so a
- * thumb does not have to land on a thin column; arrow keys walk the months.
+ * baseline; every column carries its value on its cap, at as many
+ * significant figures as fit in the month's band (three on a desktop, two on
+ * a phone), and the tooltip has the exact amount. Each month's whole band is
+ * its hit target, so a thumb does not have to land on a thin column; arrow
+ * keys walk the months.
  *
  * Measured with a ResizeObserver like BalanceChart, so text stays 11px on a
  * phone instead of scaling down with a viewBox.
@@ -76,6 +78,13 @@ export default function MonthlyChart({
     currentMonth && currentMonth.slice(0, 4) === year ? Number(currentMonth.slice(5, 7)) - 1 : null;
   const maxIndex = values.indexOf(max);
   const hovered = hover === null ? null : { index: hover, value: values[hover] };
+  // A phone's band is ~23px, so the labels shrink a point and drop to two
+  // significant figures rather than run into each other.
+  const labelSize = band < 28 ? 9 : 10;
+  const labelFor = (v: number) => {
+    const three = formatCompact(v, 3);
+    return three.length * labelSize * 0.6 <= band - 4 ? three : formatCompact(v, 2);
+  };
 
   return (
     <div ref={containerRef} className="relative w-full select-none" style={{ height: HEIGHT }}>
@@ -136,17 +145,24 @@ export default function MonthlyChart({
             ) : null,
           )}
 
-          {/* The one direct label: the biggest month, on its cap. */}
-          <text
-            x={x(maxIndex) + barW / 2}
-            y={y(max) - 6}
-            textAnchor="middle"
-            fontSize={10}
-            fill="rgba(255,255,255,0.7)"
-            fontFamily="var(--font-jetbrains-mono), monospace"
-          >
-            {formatCompact(max)}
-          </text>
+          {/* Each column's value on its cap, lifting into place as the column grows. */}
+          {values.map((v, i) =>
+            v > 0 ? (
+              <text
+                key={`${seriesKey}-${i}`}
+                x={x(i) + barW / 2}
+                y={y(v) - 6}
+                textAnchor="middle"
+                fontSize={labelSize}
+                fill={hover === null || hover === i ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.35)"}
+                fontFamily="var(--font-jetbrains-mono), monospace"
+                className="animate-rise"
+                style={{ animationDelay: `${i * 25}ms` }}
+              >
+                {labelFor(v)}
+              </text>
+            ) : null,
+          )}
 
           {/* Month initials; the phone's month reads brighter. */}
           {MONTH_INITIALS.map((m, i) => (

@@ -445,7 +445,10 @@ given, not money lost, so Home no longer has a number that can go negative
   (value beside the name, so it is its own table view; each row a 44px
   link to the client). `MonthlyChart` is hand-rolled SVG measured with a
   ResizeObserver like `BalanceChart`: columns ≤ 24px with a 4px rounded
-  cap and a square foot, the biggest month the ONE direct label, hairline
+  cap and a square foot, **every column labelled on its cap** (Mark's ask,
+  2026-09-21 — the dataviz "selective labels" rule is deliberately set
+  aside here; three significant figures where the band fits them, two and
+  9px on a phone, the tooltip keeps the exact amount), hairline
   solid gridlines, ticks from `lib/ticks.ts::niceTicks`, the whole month
   band as the hit target, value-first tooltip, arrow keys, an empty state
   instead of a bare axis. The client filter scopes only the monthly chart,
