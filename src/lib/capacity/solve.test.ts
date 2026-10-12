@@ -161,9 +161,9 @@ describe("maxFeasiblePrice — monotonic for every kind, loan on and off", () =>
     enabled: true, share: 0.9, flatRate: 0.12, years: 5, lendingRatio: 1, certificateRate: 0.11, release: "gradual",
   };
   const purchases: PurchaseInput[] = [
-    { kind: "developer-plan", discount: 0, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
-    { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
-    { kind: "resale", discount: 0, resaleRemaining: 2_000_000, resaleYears: 4, resaleFrequency: "quarterly" },
+    { kind: "developer-plan", discount: 0, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" },
+    { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" },
+    { kind: "resale", discount: 0, resaleRemaining: 2_000_000, resaleInstallments: 16, resaleFrequency: "quarterly" },
   ];
   for (const purchase of purchases) {
     for (const loan of [undefined, LOAN]) {
@@ -190,14 +190,14 @@ describe("withoutLoan / compare", () => {
     enabled: true, share: 1, flatRate: 0.1, years: 10, lendingRatio: 1, certificateRate: 0.15, release: "at-end",
   };
   const CASH: PurchaseInput = {
-    kind: "developer-plan", discount: 0.3, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly",
+    kind: "developer-plan", discount: 0.3, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly",
   };
 
   it("only turns the loan off", () => {
     const base = withoutLoan(withInputs({ purchase: CASH, loan: LOAN }));
     expect(base.loan?.enabled ?? false).toBe(false);
     expect(base.purchase).toEqual(CASH);
-    const resale = withoutLoan(withInputs({ purchase: { ...CASH, kind: "resale", resaleYears: 3 }, loan: LOAN }));
+    const resale = withoutLoan(withInputs({ purchase: { ...CASH, kind: "resale", resaleInstallments: 3 }, loan: LOAN }));
     expect(resale.purchase!.kind).toBe("resale");
   });
 
@@ -267,7 +267,7 @@ describe("minTopUp", () => {
 describe("solvePlans / bestPlan", () => {
   const cash = withInputs({
     schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
-    purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+    purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" },
   });
   const short = withInputs({ schedule: { downPayment: 1, planYears: 1, mode: "equal", frequency: "yearly" } });
   const plans = [REFERENCE, cash, short];

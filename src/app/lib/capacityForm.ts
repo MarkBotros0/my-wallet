@@ -1,6 +1,7 @@
 import {
   effectiveFromNominal,
   inputProblems,
+  paymentsPerYear,
   type CalculatorInputs,
   type CompoundingFrequency,
   type IncomeFrequency,
@@ -65,7 +66,8 @@ export interface PlanForm {
   yearPcts: string[];
   frequency: PaymentFrequency;
   resaleRemaining: string;
-  resaleYears: string;
+  /** resale: how many installments the seller still owes; read with `resaleFrequency`. */
+  resaleInstallments: string;
   resaleFrequency: PaymentFrequency;
   maintenancePct: string;
   maintenanceYear: string;
@@ -123,7 +125,7 @@ export function newPlan(id: string, patch: Partial<PlanForm> = {}): PlanForm {
     yearPcts: [],
     frequency: "yearly",
     resaleRemaining: "",
-    resaleYears: "4",
+    resaleInstallments: "4",
     resaleFrequency: "yearly",
     maintenancePct: "",
     maintenanceYear: "1",
@@ -198,7 +200,7 @@ export function planName(plan: PlanForm): string {
   const loan = plan.loanEnabled ? " + loan" : "";
   if (plan.kind === "resale") {
     const owed = num(plan.resaleRemaining);
-    return (owed > 0 ? `Resale · ${formatCompact(owed)} over ${yrs(num(plan.resaleYears))}` : "Resale") + loan;
+    return (owed > 0 ? `Resale · ${formatCompact(owed)} · ${num(plan.resaleInstallments)} ${FREQ_WORD[plan.resaleFrequency]}` : "Resale") + loan;
   }
   const now = num(plan.nowPct);
   const off = num(plan.discountPct);
@@ -210,8 +212,8 @@ export function planName(plan: PlanForm): string {
 /** The plan's terms in one line. */
 export function planTerms(plan: PlanForm): string {
   if (plan.kind === "resale") {
-    const years = num(plan.resaleYears);
-    return `Pay the seller now, ${grouped(num(plan.resaleRemaining))} to the developer over ${years} ${years === 1 ? "year" : "years"}`;
+    const n = num(plan.resaleInstallments);
+    return `Pay the seller now, ${grouped(num(plan.resaleRemaining))} to the developer in ${n} ${FREQ_WORD[plan.resaleFrequency]} ${n === 1 ? "installment" : "installments"}`;
   }
   const now = num(plan.nowPct);
   const off = num(plan.discountPct);
@@ -275,7 +277,7 @@ const PLAN_ORDER: readonly string[] = [
   "planYears",
   "yearPcts", // year-N slot in just before it
   "resaleRemaining",
-  "resaleYears",
+  "resaleInstallments",
   "loanSharePct",
   "loanFlatRatePct",
   "loanYears",
@@ -319,7 +321,7 @@ const PLAN_ENGINE: Partial<Record<InputField, keyof PlanForm>> = {
   "finishing.year": "finishingYear",
   "purchase.discount": "discountPct",
   "purchase.resaleRemaining": "resaleRemaining",
-  "purchase.resaleYears": "resaleYears",
+  "purchase.resaleInstallments": "resaleInstallments",
   "loan.share": "loanSharePct",
   "loan.flatRate": "loanFlatRatePct",
   "loan.years": "loanYears",
@@ -443,7 +445,7 @@ function parsePlan(p: PlanForm, money: ParsedMoney["base"], mode: Mode): PlanPar
     kind: resale ? "resale" : "developer-plan",
     discount: resale ? 0 : optional("discountPct", p.discountPct, "Discount") / 100,
     resaleRemaining: resale ? required("resaleRemaining", p.resaleRemaining, "What's still owed") : 0,
-    resaleYears: resale ? required("resaleYears", p.resaleYears, "Years left") : 1,
+    resaleInstallments: resale ? required("resaleInstallments", p.resaleInstallments, "Installments left") : 1,
     resaleFrequency: p.resaleFrequency,
   };
 
@@ -565,11 +567,29 @@ function sanitize<T extends object>(src: unknown, defaults: T, choices: Record<s
   return out as T;
 }
 
+const DEFAULT_RESALE_INSTALLMENTS = 4;
+
+/** Years left on a resale, as the count of installments at a frequency; null when it is not a number. */
+function installmentsFromYears(years: string, frequency: PaymentFrequency): number | null {
+  const n = parseNumber(years);
+  return n === null ? null : n * paymentsPerYear(frequency);
+}
+
+/** A stored plan from before installments: its `resaleYears` become a count at its frequency. */
+function withInstallments(plan: unknown): unknown {
+  if (!plan || typeof plan !== "object") return plan;
+  const p = plan as Record<string, unknown>;
+  if (typeof p.resaleInstallments === "string" || typeof p.resaleYears !== "string") return plan;
+  const freq = CHOICES.resaleFrequency?.includes(p.resaleFrequency as string) ? (p.resaleFrequency as PaymentFrequency) : "yearly";
+  const n = installmentsFromYears(p.resaleYears, freq);
+  return { ...p, resaleInstallments: n === null ? String(DEFAULT_RESALE_INSTALLMENTS) : String(n) };
+}
+
 function normalizeV2(src: Record<string, unknown>): CapacityForm {
   const money = sanitize(src.money, DEFAULT_MONEY);
 
   let plans: PlanForm[] = Array.isArray(src.plans) && src.plans.length > 0
-    ? src.plans.slice(0, MAX_PLANS).map((p) => sanitize(p, newPlan("")))
+    ? src.plans.slice(0, MAX_PLANS).map((p) => sanitize(withInstallments(p), newPlan("")))
     : DEFAULT_FORM.plans;
   const seen = new Set<string>();
   const fixed: PlanForm[] = [];
@@ -683,7 +703,7 @@ function migrateV1(raw: Record<string, unknown>): CapacityForm {
     yearPcts: v.yearPcts,
     frequency: v.frequency as PaymentFrequency,
     resaleRemaining: v.resaleRemaining,
-    resaleYears: v.resaleYears,
+    resaleInstallments: String(installmentsFromYears(v.resaleYears, v.resaleFrequency as PaymentFrequency) ?? DEFAULT_RESALE_INSTALLMENTS),
     resaleFrequency: v.resaleFrequency as PaymentFrequency,
     maintenancePct: v.maintenancePct,
     maintenanceYear: v.maintenanceYear,

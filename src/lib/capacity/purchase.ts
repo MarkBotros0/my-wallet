@@ -1,4 +1,4 @@
-import { MAX_PLAN_YEARS, MIN_PLAN_YEARS, buildInstallmentShares } from "./schedule";
+import { MAX_PLAN_YEARS, buildInstallmentShares, lastInstallmentMonth, paymentsPerYear } from "./schedule";
 import type { CalculatorInputs, InputProblem, LoanInput, PurchaseInput } from "./types";
 
 /**
@@ -11,7 +11,7 @@ import type { CalculatorInputs, InputProblem, LoanInput, PurchaseInput } from ".
  *                    the LIST price so plans' maxima compare; a down payment of
  *                    100% is a cash purchase (nothing after);
  *   resale         — price (the cash to the seller) now, then the seller's
- *                    fixed remaining balance, split equally over its years.
+ *                    fixed remaining balance, split equally over its installments.
  */
 
 /** Inputs without a `purchase` are the original calculator: developer installments. */
@@ -19,7 +19,7 @@ export const DEFAULT_PURCHASE: PurchaseInput = {
   kind: "developer-plan",
   discount: 0,
   resaleRemaining: 0,
-  resaleYears: 1,
+  resaleInstallments: 1,
   resaleFrequency: "yearly",
 };
 
@@ -35,7 +35,7 @@ export function activeLoan(inputs: CalculatorInputs): LoanInput | null {
 /** Years of the developer stream (the plan's years even when nothing falls due after the down payment). */
 export function developerYears(inputs: CalculatorInputs): number {
   const p = purchaseOf(inputs);
-  return p.kind === "resale" ? p.resaleYears : inputs.schedule.planYears;
+  return p.kind === "resale" ? Math.ceil(lastInstallmentMonth(p.resaleInstallments, p.resaleFrequency) / 12) : inputs.schedule.planYears;
 }
 
 /** A year an extra cost falls due, as a horizon: whole and at least 1 (bad values are `inputProblems`' to report). */
@@ -76,10 +76,9 @@ export function buildDeal(inputs: CalculatorInputs, price: number, horizon: numb
   const p = purchaseOf(inputs);
   switch (p.kind) {
     case "resale":
-      spread(
-        buildInstallmentShares({ downPayment: 0, planYears: p.resaleYears, mode: "equal", frequency: p.resaleFrequency }),
-        p.resaleRemaining,
-      );
+      const step = 12 / paymentsPerYear(p.resaleFrequency);
+      const each = p.resaleRemaining / p.resaleInstallments;
+      for (let k = 1; k <= p.resaleInstallments && k * step <= months; k++) developerDue[k * step] += each;
       return { upFront: price, developerDue, costBase: price + p.resaleRemaining };
     default: {
       const net = price * (1 - p.discount);
@@ -103,10 +102,11 @@ export function purchaseProblems(inputs: CalculatorInputs): InputProblem[] {
         message: "What's still owed to the developer cannot be negative — enter 0 if the seller has paid it all.",
       });
     }
-    if (!Number.isInteger(p.resaleYears) || p.resaleYears < MIN_PLAN_YEARS || p.resaleYears > MAX_PLAN_YEARS) {
+    const max = MAX_PLAN_YEARS * paymentsPerYear(p.resaleFrequency);
+    if (!Number.isInteger(p.resaleInstallments) || p.resaleInstallments < 1 || p.resaleInstallments > max) {
       problems.push({
-        field: "purchase.resaleYears",
-        message: `Years left must be a whole number from ${MIN_PLAN_YEARS} to ${MAX_PLAN_YEARS}.`,
+        field: "purchase.resaleInstallments",
+        message: `Installments left must be a whole number from 1 to ${max}.`,
       });
     }
   }

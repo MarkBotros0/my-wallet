@@ -22,6 +22,26 @@ const PAYMENTS_PER_YEAR: Record<PaymentFrequency, number> = {
   monthly: 12,
 };
 
+/** How many payments a year at this frequency. */
+export function paymentsPerYear(frequency: PaymentFrequency): number {
+  return PAYMENTS_PER_YEAR[frequency];
+}
+
+/** The month the n-th installment of a count falls due: n × the months between payments. */
+export function lastInstallmentMonth(n: number, frequency: PaymentFrequency): number {
+  return n * (12 / PAYMENTS_PER_YEAR[frequency]);
+}
+
+/** A span of months in words: "7 months", "1 year", "2 years 7 months". */
+export function durationText(months: number): string {
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  const parts: string[] = [];
+  if (y > 0) parts.push(`${y} ${y === 1 ? "year" : "years"}`);
+  if (m > 0 || y === 0) parts.push(`${m} ${m === 1 ? "month" : "months"}`);
+  return parts.join(" ");
+}
+
 /** Each year's fraction of the price, mode-independent. */
 export function yearShares(schedule: ScheduleInput): number[] {
   if (schedule.mode === "custom") {

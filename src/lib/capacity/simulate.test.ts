@@ -347,7 +347,7 @@ const RESALE: PurchaseInput = {
   kind: "resale",
   discount: 0,
   resaleRemaining: 5_000_000,
-  resaleYears: 4,
+  resaleInstallments: 4,
   resaleFrequency: "yearly",
 };
 /** Savings large enough to carry the resale example: 10M to the seller, 9M of it borrowed. */
@@ -500,9 +500,9 @@ describe("inputProblems — purchase and loan", () => {
   });
   it("reports loan and purchase problems with their fields", () => {
     const fields = inputProblems(
-      withInputs({ ...RESALE_DEAL, purchase: { ...RESALE, resaleYears: 0 }, loan: { ...LOAN, lendingRatio: 0 } }),
+      withInputs({ ...RESALE_DEAL, purchase: { ...RESALE, resaleInstallments: 0 }, loan: { ...LOAN, lendingRatio: 0 } }),
     ).map((p) => p.field);
-    expect(fields).toContain("purchase.resaleYears");
+    expect(fields).toContain("purchase.resaleInstallments");
     expect(fields).toContain("loan.lendingRatio");
   });
 });
@@ -592,7 +592,7 @@ describe("simulate — reconciliation", () => {
     [
       "resale + loan",
       rich({
-        purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleYears: 4, resaleFrequency: "quarterly" },
+        purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleInstallments: 16, resaleFrequency: "quarterly" },
         loan: LOAN_AT_END,
       }),
       10_000_000,
@@ -601,7 +601,7 @@ describe("simulate — reconciliation", () => {
       "100% now with a discount",
       rich({
         schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
-        purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+        purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" },
       }),
       10_000_000,
     ],
@@ -633,7 +633,7 @@ describe("simulate — reconciliation", () => {
 describe("inputProblems — discount", () => {
   it("rejects a discount of 100% and accepts a 100% down payment", () => {
     const p = (discount: number) => ({
-      kind: "developer-plan" as const, discount, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" as const,
+      kind: "developer-plan" as const, discount, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" as const,
     });
     expect(inputProblems(withInputs({ purchase: p(1) })).map((x) => x.field)).toEqual(["purchase.discount"]);
     expect(

@@ -195,7 +195,7 @@ describe("parseForm — plans", () => {
       withPlan("p1", {
         kind: "resale",
         resaleRemaining: "5,000,000",
-        resaleYears: "4",
+        resaleInstallments: "16",
         resaleFrequency: "quarterly",
         nowPct: "abc",
         planYears: "",
@@ -210,7 +210,7 @@ describe("parseForm — plans", () => {
       kind: "resale",
       discount: 0,
       resaleRemaining: 5_000_000,
-      resaleYears: 4,
+      resaleInstallments: 16,
       resaleFrequency: "quarterly",
     });
     expect(i.loan).toEqual({
@@ -234,11 +234,11 @@ describe("parseForm — plans", () => {
     const parsed = parseForm(
       withPlan(
         "p1",
-        { kind: "resale", resaleRemaining: "0", resaleYears: "20", loanEnabled: true, loanSharePct: "150", testPrice: "-3" },
+        { kind: "resale", resaleRemaining: "0", resaleInstallments: "20", loanEnabled: true, loanSharePct: "150", testPrice: "-3" },
         DEFAULT_FORM,
       ),
     );
-    expect(parsed.errors.map((e) => e.field)).toEqual(["plan.p1.resaleYears", "plan.p1.loanSharePct"]);
+    expect(parsed.errors.map((e) => e.field)).toEqual(["plan.p1.resaleInstallments", "plan.p1.loanSharePct"]);
     const both = parseForm(withPlan("p2", { nowPct: "" }, withMoney({ startingCapital: "" })));
     expect(both.errors.map((e) => e.field)).toEqual(["money.startingCapital", "plan.p2.nowPct"]);
   });
@@ -275,7 +275,8 @@ describe("planId / planName / planTerms", () => {
     expect(planName(base)).toBe("10% now · 8 yrs");
     expect(planName({ ...base, nowPct: "100", discountPct: "25" })).toBe("All now · 25% off");
     expect(planName({ ...base, nowPct: "30", discountPct: "10", planYears: "6" })).toBe("30% now, 10% off · 6 yrs");
-    expect(planName({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleYears: "4" })).toBe("Resale · 5M over 4 yrs");
+    expect(planName({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleInstallments: "31", resaleFrequency: "monthly" })).toBe("Resale · 5M · 31 monthly");
+    expect(planName({ ...base, kind: "resale", resaleRemaining: "0" })).toBe("Resale");
     expect(planName({ ...base, loanEnabled: true })).toBe("10% now · 8 yrs + loan");
     expect(planName({ ...base, name: "  Villa  " })).toBe("Villa");
     expect(planName({ ...base, planYears: "1" })).toBe("10% now · 1 yr");
@@ -285,8 +286,11 @@ describe("planId / planName / planTerms", () => {
     const base = newPlan("x");
     expect(planTerms(base)).toBe("10% now, the rest yearly over 8 years");
     expect(planTerms({ ...base, nowPct: "100", discountPct: "25" })).toBe("All now, 25% off");
-    expect(planTerms({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleYears: "4" })).toBe(
-      "Pay the seller now, 5,000,000 to the developer over 4 years",
+    expect(planTerms({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleInstallments: "31", resaleFrequency: "monthly" })).toBe(
+      "Pay the seller now, 5,000,000 to the developer in 31 monthly installments",
+    );
+    expect(planTerms({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleInstallments: "1", resaleFrequency: "yearly" })).toBe(
+      "Pay the seller now, 5,000,000 to the developer in 1 yearly installment",
     );
   });
 });
@@ -446,7 +450,7 @@ describe("normalizeForm — v1 migration", () => {
     expect(f.plans[0]).toMatchObject({
       kind: "resale",
       resaleRemaining: "5,000,000",
-      resaleYears: "4",
+      resaleInstallments: "16",
       resaleFrequency: "quarterly",
       loanEnabled: true,
       loanSharePct: "90",
@@ -455,6 +459,23 @@ describe("normalizeForm — v1 migration", () => {
       loanRatesEdited: true,
     });
     expect(parseForm(f).errors).toEqual([]);
+  });
+
+  it("counts a v1 resale's years as installments at its frequency", () => {
+    const f = normalizeForm({ ...v1, purchaseKind: "resale", resaleYears: "4", resaleFrequency: "yearly" });
+    expect(f.plans[0].resaleInstallments).toBe("4");
+  });
+
+  it("migrates a stored v2 plan's resaleYears into installments", () => {
+    const stored = { ...DEFAULT_FORM.plans[0], kind: "resale", resaleFrequency: "quarterly", resaleYears: "3" } as Record<string, unknown>;
+    delete stored.resaleInstallments;
+    const f = normalizeForm({ ...DEFAULT_FORM, plans: [stored] });
+    expect(f.plans[0].resaleInstallments).toBe("12");
+    expect("resaleYears" in f.plans[0]).toBe(false);
+    const junk = normalizeForm({ ...DEFAULT_FORM, plans: [{ ...stored, resaleYears: "abc" }] });
+    expect(junk.plans[0].resaleInstallments).toBe("4");
+    const kept = normalizeForm({ ...DEFAULT_FORM, plans: [{ ...stored, resaleYears: "3", resaleInstallments: "7" }] });
+    expect(kept.plans[0].resaleInstallments).toBe("7");
   });
 
   it("treats an object with none of the v1 keys as the defaults", () => {

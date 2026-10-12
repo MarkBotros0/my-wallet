@@ -1,5 +1,7 @@
 import {
   DEFAULT_STEP,
+  durationText,
+  lastInstallmentMonth,
   purchaseOf,
   type CalculatorInputs,
   type Comparison,
@@ -91,16 +93,24 @@ function planNow(inputs: CalculatorInputs): string {
 function developerClause(inputs: CalculatorInputs, sim: SimulationResult): DealSentence | null {
   const purchase = purchaseOf(inputs);
   if (sim.totalInstallments <= 0) return null;
+  if (purchase.kind === "resale") {
+    const count = purchase.resaleInstallments;
+    const frequency = purchase.resaleFrequency;
+    return [
+      "the developer ",
+      { amount: sim.totalInstallments / count, tone: "out" },
+      ` ${EVERY[frequency]} — ${count} ${count === 1 ? "payment" : "payments"}, the last in ${durationText(lastInstallmentMonth(count, frequency))}`,
+    ];
+  }
   const s = inputs.schedule;
-  const frequency = purchase.kind === "resale" ? purchase.resaleFrequency : s.frequency;
-  const n = purchase.kind === "resale" ? purchase.resaleYears : s.planYears;
+  const n = s.planYears;
   if (purchase.kind === "developer-plan" && s.mode === "custom") {
     return ["the developer ", { amount: sim.totalInstallments, tone: "out" }, ` over ${years(n)}`];
   }
   return [
     "the developer ",
-    { amount: sim.totalInstallments / (n * PER_YEAR[frequency]), tone: "out" },
-    ` ${EVERY[frequency]} for ${years(n)}`,
+    { amount: sim.totalInstallments / (n * PER_YEAR[s.frequency]), tone: "out" },
+    ` ${EVERY[s.frequency]} for ${years(n)}`,
   ];
 }
 

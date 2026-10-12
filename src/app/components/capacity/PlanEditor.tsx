@@ -1,13 +1,23 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { PaymentFrequency, PlanResult } from "@/lib/capacity";
+import { MAX_PLAN_YEARS, durationText, lastInstallmentMonth, paymentsPerYear, type PaymentFrequency, type PlanResult } from "@/lib/capacity";
 import { parseNumber, planName, type Mode, type PlanForm, type PlanKind } from "@/app/lib/capacityForm";
 import { formatMoney } from "@/app/lib/format";
 import { Field, FieldError, Segmented, inputClass } from "../ui";
 import { CalcField, fieldId, useFormErrors } from "./formErrors";
 import LoanCard from "./LoanCard";
 import ScheduleEditor from "./ScheduleEditor";
+
+/** When the last installment falls due, once the count is a valid whole number; else what the field asks. */
+function resaleEndHint(plan: PlanForm): string {
+  const n = parseNumber(plan.resaleInstallments);
+  const max = MAX_PLAN_YEARS * paymentsPerYear(plan.resaleFrequency);
+  if (n !== null && Number.isInteger(n) && n >= 1 && n <= max) {
+    return `The last one is due in ${durationText(lastInstallmentMonth(n, plan.resaleFrequency))}.`;
+  }
+  return "How many payments the seller still owes the developer.";
+}
 
 /**
  * One plan's terms, opened inline under its card. Read top to bottom it is
@@ -90,15 +100,6 @@ export default function PlanEditor({
               suffix={currency}
               placeholder="0"
             />
-            <CalcField
-              field={at("resaleYears")}
-              label="Years left"
-              hint="How long until it is paid off."
-              value={plan.resaleYears}
-              onChange={(v) => onChange({ resaleYears: v })}
-              suffix="years"
-              placeholder="4"
-            />
             <div>
               <span className="mb-1.5 block text-xs font-medium text-white/60">How often</span>
               <Segmented<PaymentFrequency>
@@ -112,6 +113,15 @@ export default function PlanEditor({
                 ]}
               />
             </div>
+            <CalcField
+              field={at("resaleInstallments")}
+              label="Installments left"
+              hint={resaleEndHint(plan)}
+              value={plan.resaleInstallments}
+              onChange={(v) => onChange({ resaleInstallments: v })}
+              suffix={plan.resaleFrequency}
+              placeholder="4"
+            />
           </>
         ) : (
           <>

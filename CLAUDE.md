@@ -510,7 +510,7 @@ the **plan**; income, savings and safety rules to the money.
 | kind | up-front at month 0 | after | extra costs × |
 |---|---|---|---|
 | developer-plan | `net × downPayment` | `buildInstallmentShares(schedule) × net` | net |
-| resale | `price` (cash to the seller) | `resaleRemaining` (fixed, not scaled) over `resaleYears` at `resaleFrequency`, equal split | price + resaleRemaining |
+| resale | `price` (cash to the seller) | `resaleRemaining` (fixed, not scaled) in `resaleInstallments` equal parts, one per period of `resaleFrequency` (month k × step) | price + resaleRemaining |
 
 `net = price × (1 − discount)` and **`price` is always the LIST price**, so
 plans' maxima compare. **There is no developer-cash kind**: the unified

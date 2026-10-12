@@ -7,7 +7,7 @@ const RESALE_DEAL: CalculatorInputs = {
   ...REFERENCE,
   startingCapital: 20_000_000,
   maintenance: { share: 0, year: 1 },
-  purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleYears: 4, resaleFrequency: "yearly" },
+  purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleInstallments: 4, resaleFrequency: "yearly" },
   loan: { enabled: true, share: 0.9, flatRate: 0.12, years: 5, lendingRatio: 1, certificateRate: 0.11, release: "at-end" },
 };
 
@@ -36,7 +36,7 @@ describe("describeDeal", () => {
   });
 
   it("lists what is paid after, to the bank and to the developer", () => {
-    expect(text(sentences[2])).toBe("Then you pay the bank # a month for 5 years, and the developer # at the end of each year for 4 years.");
+    expect(text(sentences[2])).toBe("Then you pay the bank # a month for 5 years, and the developer # at the end of each year — 4 payments, the last in 4 years.");
     expect(amounts(sentences[2])).toEqual([
       { amount: 240_000, tone: "out" },
       { amount: 1_250_000, tone: "out" },
@@ -56,7 +56,7 @@ describe("describeDeal", () => {
       ...REFERENCE,
       maintenance: { share: 0, year: 1 },
       schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
-      purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+      purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" },
     };
     const s = describeDeal(d, simulate(d, 5_000_000));
     expect(text(s[0])).toBe("You pay the developer # today (the whole price after 25% off), from savings.");
@@ -64,7 +64,7 @@ describe("describeDeal", () => {
   });
 
   it("says how much is paid now, after a discount, or without one", () => {
-    const p = (discount: number) => ({ kind: "developer-plan" as const, discount, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" as const });
+    const p = (discount: number) => ({ kind: "developer-plan" as const, discount, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" as const });
     const a = { ...REFERENCE, schedule: { ...REFERENCE.schedule, downPayment: 0.3 }, purchase: p(0.1) };
     expect(text(describeDeal(a, simulate(a, 5_000_000))[0])).toBe("You pay the developer # today (30% of the price after 10% off), from savings.");
     expect(text(describeDeal(REFERENCE, simulate(REFERENCE, 8_000_000))[0])).toBe("You pay the developer # today (10% of the price), from savings.");

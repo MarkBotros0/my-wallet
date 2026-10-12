@@ -11,14 +11,14 @@ const cases: [string, CalculatorInputs, number][] = [
   ["plan + loan gradual", rich({ loan: { ...LOAN, release: "gradual" } }), 8_000_000],
   [
     "resale + loan",
-    rich({ purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleYears: 4, resaleFrequency: "quarterly" }, loan: LOAN }),
+    rich({ purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleInstallments: 16, resaleFrequency: "quarterly" }, loan: LOAN }),
     10_000_000,
   ],
   [
     "100% now with a discount",
     rich({
       schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
-      purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+      purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleInstallments: 1, resaleFrequency: "yearly" },
     }),
     10_000_000,
   ],
@@ -91,7 +91,7 @@ describe("flowGroups", () => {
 });
 
 describe("flowGroups per year, with loans", () => {
-  const RESALE = { kind: "resale" as const, discount: 0, resaleRemaining: 5_000_000, resaleYears: 4, resaleFrequency: "quarterly" as const };
+  const RESALE = { kind: "resale" as const, discount: 0, resaleRemaining: 5_000_000, resaleInstallments: 16, resaleFrequency: "quarterly" as const };
   const yearCases: [string, CalculatorInputs, number][] = [
     ["resale + gradual release", rich({ purchase: RESALE, loan: { ...LOAN, release: "gradual" } }), 10_000_000],
     ["developer + at-end, lending ratio 0.9", rich({ loan: { ...LOAN, lendingRatio: 0.9 } }), 8_000_000],

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REFERENCE } from "./fixtures";
+import { durationText, lastInstallmentMonth } from "./schedule";
 import { activeLoan, buildDeal, horizonYears, purchaseOf, purchaseProblems } from "./purchase";
 import type { CalculatorInputs, LoanInput, PurchaseInput } from "./types";
 
@@ -16,7 +17,7 @@ const RESALE: PurchaseInput = {
   kind: "resale",
   discount: 0,
   resaleRemaining: 5_000_000,
-  resaleYears: 4,
+  resaleInstallments: 4,
   resaleFrequency: "yearly",
 };
 const withInputs = (over: Partial<CalculatorInputs>): CalculatorInputs => ({ ...REFERENCE, ...over });
@@ -114,13 +115,46 @@ describe("purchaseProblems", () => {
       expect(fields).toEqual(["purchase.discount"]);
     }
   });
-  it("rejects a negative remaining balance and years outside 1–15 for a resale only", () => {
+  it("rejects a negative remaining balance and installments outside the range for a resale only for a resale only", () => {
     const fields = purchaseProblems(
-      withInputs({ purchase: { ...RESALE, resaleRemaining: -1, resaleYears: 16 } }),
+      withInputs({ purchase: { ...RESALE, resaleRemaining: -1, resaleInstallments: 61 } }),
     ).map((p) => p.field);
-    expect(fields).toEqual(["purchase.resaleRemaining", "purchase.resaleYears"]);
+    expect(fields).toEqual(["purchase.resaleRemaining", "purchase.resaleInstallments"]);
     expect(
-      purchaseProblems(withInputs({ purchase: { ...RESALE, kind: "developer-plan", resaleYears: 0 } })),
+      purchaseProblems(withInputs({ purchase: { ...RESALE, kind: "developer-plan", resaleInstallments: 0 } })),
     ).toEqual([]);
+  });
+});
+
+describe("a resale counted in installments", () => {
+  const MONTHLY: PurchaseInput = { ...RESALE, resaleRemaining: 3_100_000, resaleInstallments: 31, resaleFrequency: "monthly" };
+  it("31 monthly installments land 100,000 on months 1 to 31 and nothing at 32", () => {
+    const inputs = withInputs({ purchase: MONTHLY });
+    const deal = buildDeal(inputs, 1_000_000, horizonYears(inputs));
+    for (let m = 1; m <= 31; m++) expect(deal.developerDue[m]).toBeCloseTo(100_000, 6);
+    expect(deal.developerDue[32]).toBe(0);
+  });
+  it("the developer stream spans ceil(months / 12) years", () => {
+    const inputs = withInputs({ purchase: MONTHLY, schedule: { ...REFERENCE.schedule, planYears: 1 }, maintenance: { share: 0, year: 1 } });
+    expect(horizonYears(inputs)).toBe(3);
+  });
+  it("bounds the count by 15 years of payments at the frequency", () => {
+    const bad = (n: number, f: PurchaseInput["resaleFrequency"]) =>
+      purchaseProblems(withInputs({ purchase: { ...RESALE, resaleInstallments: n, resaleFrequency: f } }));
+    expect(bad(0, "quarterly")).toHaveLength(1);
+    expect(bad(61, "quarterly")).toHaveLength(1);
+    expect(bad(2.5, "quarterly")).toHaveLength(1);
+    expect(bad(60, "quarterly")).toEqual([]);
+    expect(bad(61, "quarterly")[0].message).toBe("Installments left must be a whole number from 1 to 60.");
+  });
+  it("names the last installment's month and the span in words", () => {
+    expect(lastInstallmentMonth(31, "monthly")).toBe(31);
+    expect(lastInstallmentMonth(4, "quarterly")).toBe(12);
+    expect(lastInstallmentMonth(3, "yearly")).toBe(36);
+    expect(durationText(7)).toBe("7 months");
+    expect(durationText(12)).toBe("1 year");
+    expect(durationText(48)).toBe("4 years");
+    expect(durationText(31)).toBe("2 years 7 months");
+    expect(durationText(13)).toBe("1 year 1 month");
   });
 });

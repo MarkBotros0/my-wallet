@@ -68,8 +68,8 @@ export interface PurchaseInput {
   discount: number;
   /** resale: what the seller still owes the developer — a fixed amount, never scaled by price. */
   resaleRemaining: number;
-  /** resale: whole years left on that balance, 1–15; split equally. */
-  resaleYears: number;
+  /** resale: how many installments the seller still owes, a whole number; each is an equal share, one per period of `resaleFrequency`. */
+  resaleInstallments: number;
   resaleFrequency: PaymentFrequency;
 }
 
@@ -155,7 +155,7 @@ export type InputField =
   | "topUp"
   | "purchase.discount"
   | "purchase.resaleRemaining"
-  | "purchase.resaleYears"
+  | "purchase.resaleInstallments"
   | "loan.share"
   | "loan.flatRate"
   | "loan.years"
