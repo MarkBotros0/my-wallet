@@ -126,7 +126,8 @@ directly comparable with the developer plan's.
   lendingRatio`; the excess returns to the fund that month.
 - **Equivalent declining rate:** the annual rate whose standard annuity
   over `n` months has the same monthly installment, found by bisection;
-  shown as an effective annual rate (`rates.ts` conventions).
+  shown as a NOMINAL annual rate (monthly rate × 12) — how banks quote a
+  declining-balance loan, so it compares directly with another offer.
 
 ### Horizon
 
@@ -251,7 +252,7 @@ default; on opens it, with fields in decision order:
    ("= 9,000,000 of the 10,000,000 you pay up front").
 2. **Flat rate** and **years** — beneath them, the offer read back:
    "**240,000 / month** for 5 years · 5,400,000 interest in total ·
-   ≈ 21% on a declining balance". This line is the main reason the
+   ≈ 20.3% on a declining balance". This line is the main reason the
    flat rate stops being confusing.
 3. **Certificate rate** — beneath: "Your 9,000,000 in certificates pays
    you **82,500 / month** while it is pledged."
@@ -261,12 +262,18 @@ default; on opens it, with fields in decision order:
    When the loan ends / As I repay) live behind it; most people never
    open it.
 
+The form has no price field — the calculator solves for it — so every
+amount in these read-backs is **at the price the results show** (the
+maximum, or the deal being checked), and says so. Before there is a
+result, only the rate line shows ("≈ 20.3% on a declining balance").
+
 Each new term has a "What's this?" disclosure (`<details>`, keyboard and
 screen-reader native, never a hover tooltip) with two sentences:
 *Pledge* ("Savings you put in certificates at the bank as security. They
 keep paying interest but you cannot spend them until the bank releases
 them."), *Flat rate* ("Interest on the full loan for every year, even as
-you repay it — so 12% flat costs about what 21% does on a normal loan."),
+you repay it — so 12% flat over 5 years costs about what 20% does on a
+normal loan."),
 *Lending ratio*, *Release*.
 
 Rates entered here are prefilled as examples and labelled "Example —
