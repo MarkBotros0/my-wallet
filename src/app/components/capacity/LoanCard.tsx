@@ -130,7 +130,15 @@ export default function LoanCard({
 
           <details
             open={termsOpen || termsForcedOpen}
-            onToggle={(e) => setTermsOpen(e.currentTarget.open)}
+            onToggle={(e) => {
+              // An invalid field must never be hidden: undo a close while forced
+              // open, and record only the user's own toggles in termsOpen.
+              if (termsForcedOpen) {
+                if (!e.currentTarget.open) e.currentTarget.open = true;
+                return;
+              }
+              setTermsOpen(e.currentTarget.open);
+            }}
             className="rounded-lg border border-white/10 bg-white/[0.03]"
           >
             <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs text-white/60 [&::-webkit-details-marker]:hidden">
