@@ -14,6 +14,7 @@ import { SECTIONS, sectionOf, sectionSummary, type SectionId } from "@/app/lib/c
 import { formatMoney, formatPct } from "@/app/lib/format";
 import BalanceChart from "./BalanceChart";
 import { CalcField, FormErrorsProvider, fieldId, focusField, useFormErrors, useVisibleErrors } from "./formErrors";
+import LoanCard from "./LoanCard";
 import LiveResult, { DesktopResultBar, useScrolledPast } from "./LiveResult";
 import ResultTabs, { tabPanelProps, type ResultTab } from "./ResultTabs";
 import PurchasePicker, { ResaleFields } from "./PurchasePicker";
@@ -197,7 +198,15 @@ export default function CapacityCalculator() {
                   ) : (
                     <ScheduleEditor form={form} update={update} />
                   ))}
-                {id === "loan" && <p className="text-sm text-white/50">No loan.</p>}
+                {id === "loan" && (
+                  <LoanCard
+                    form={form}
+                    update={update}
+                    loan={showing?.loan ?? null}
+                    atPrice={showing === tested ? "test" : "max"}
+                    currency={currency}
+                  />
+                )}
                 {id === "extras" && (
                   <div className="space-y-4">
                     <div>
