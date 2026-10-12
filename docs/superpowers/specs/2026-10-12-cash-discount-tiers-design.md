@@ -104,10 +104,12 @@ through `withTier`, mapped back to the row's fields.
   default and reset is the best tier. The hero labels it: "With 30% now
   (10% off)". An unaffordable tier shows "Nothing".
 - With the loan on, the verdict/comparison card compares the two BEST tiers
-  and names them: "With loan (30% now) · Without loan (100% now)".
+  and names them in its column headers: "With loan · 30% now (10% off)",
+  "Without loan · All now (25% off)".
 - The phone strip shows the best tier's maximum.
-- `describeDeal` for this kind: "You pay the developer # today — 30% of the
-  discounted price (10% off) — …" and the developer clause for the rest
+- `describeDeal` for this kind: "You pay the developer # today (30% of the
+  price after 10% off), from savings." (with a loan: "… — # from the bank, #
+  from savings.") and the developer clause for the rest
   ("the developer # at the end of each year for 8 years").
   A 100% tier keeps today's sentence ("today (the cash price), from
   savings."), so a single-row table reads exactly as the cash purchase did.
