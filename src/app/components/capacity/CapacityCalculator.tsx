@@ -26,20 +26,25 @@ import { Card, Field, FieldError, Segmented, Stat, useFieldState } from "../ui";
 /**
  * Installment buying capacity — the page.
  *
- * Inputs on the left (stacked above on a phone), results on the right. The
- * engine is pure and fast (a plan is at most 180 months; the solver probes a
- * few hundred prices), so everything recomputes live as the user types.
+ * Inputs on the left (stacked above on a phone), results on the right, and
+ * neither is one long scroll. The inputs are five folding sections, one open
+ * at a time, each closed row carrying a one-line summary from
+ * `capacitySections.ts`; the results are four tabs (Answer, Over time, Year
+ * by year, What if), only the active panel rendered. The engine is pure and
+ * fast (a plan is at most 180 months; the solver probes a few hundred
+ * prices), so everything recomputes live as the user types.
  *
  * When the form does not parse, every problem is shown under its own field
- * and listed above the results — each item jumps to the field — while the
+ * and listed on the Answer tab — each item jumps to the field — while the
  * last result that DID compute stays on screen, dimmed, so clearing a field
- * to retype it does not blank the page. On a phone a sticky strip under the
- * nav carries the answer (or the error count) down the form; on a desktop
- * a condensed bar does the same once the headline card has scrolled away.
- *
- * From `xl:` the results use the width: the headline full-width, then
- * "test a price" beside the sensitivity table, then the chart and the year
- * table full-width again.
+ * to retype it does not blank the page. Every "go to field" (the summary,
+ * the phone strip, the desktop bar) goes through `reveal(field)`, which opens
+ * the section (or the What if tab) that holds the field before focusing it;
+ * a closed section with a blocking error wears a red dot. On a phone a
+ * sticky strip under the nav carries the answer (or the error count) down
+ * the form; on a desktop a condensed bar does the same once the tab strip
+ * has scrolled away. From `xl:` the What if tab puts "test a price" beside
+ * the sensitivity table.
  */
 export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
@@ -148,99 +153,99 @@ export default function CapacityCalculator() {
                 {id === "buy" && <p className="text-sm text-white/50">Developer installments.</p>}
                 {id === "money" && (
                   <div className="space-y-4">
-                <CapitalRow form={form} update={update} />
-                <RateInput form={form} update={update} />
-                <CalcField
-                  field="returnFeePct"
-                  label="Fees or taxes on returns"
-                  hint="Deducted from every period's return. 0 if none."
-                  value={form.returnFeePct}
-                  onChange={(v) => update({ returnFeePct: v })}
-                  suffix="%"
-                  placeholder="0"
-                />
-                <CalcField
-                  field="safetyBuffer"
-                  label="Safety buffer"
-                  hint="The fund must never drop below this during the plan. 0 for none."
-                  group
-                  value={form.safetyBuffer}
-                  onChange={(v) => update({ safetyBuffer: v })}
-                  suffix={currency}
-                  placeholder="0"
-                />
-                <CalcField
-                  field="keepPct"
-                  label="Savings to keep at the end"
-                  hint="Of your starting capital, how much must still be in the fund after the last installment — 30 means keep 30% of it. 0 means it can all go into the property."
-                  value={form.keepPct}
-                  onChange={(v) => update({ keepPct: v })}
-                  suffix="% of capital"
-                  placeholder="0"
-                />
+                    <CapitalRow form={form} update={update} />
+                    <RateInput form={form} update={update} />
+                    <CalcField
+                      field="returnFeePct"
+                      label="Fees or taxes on returns"
+                      hint="Deducted from every period's return. 0 if none."
+                      value={form.returnFeePct}
+                      onChange={(v) => update({ returnFeePct: v })}
+                      suffix="%"
+                      placeholder="0"
+                    />
+                    <CalcField
+                      field="safetyBuffer"
+                      label="Safety buffer"
+                      hint="The fund must never drop below this during the plan. 0 for none."
+                      group
+                      value={form.safetyBuffer}
+                      onChange={(v) => update({ safetyBuffer: v })}
+                      suffix={currency}
+                      placeholder="0"
+                    />
+                    <CalcField
+                      field="keepPct"
+                      label="Savings to keep at the end"
+                      hint="Of your starting capital, how much must still be in the fund after the last installment — 30 means keep 30% of it. 0 means it can all go into the property."
+                      value={form.keepPct}
+                      onChange={(v) => update({ keepPct: v })}
+                      suffix="% of capital"
+                      placeholder="0"
+                    />
                   </div>
                 )}
                 {id === "payments" && <ScheduleEditor form={form} update={update} />}
                 {id === "loan" && <p className="text-sm text-white/50">No loan.</p>}
                 {id === "extras" && (
                   <div className="space-y-4">
-                <div>
-                  <span className="mb-1.5 block text-xs font-medium text-white/60">How often</span>
-                  <Segmented<IncomeFrequency>
-                    ariaLabel="Income frequency"
-                    value={form.incomeFrequency}
-                    onChange={(incomeFrequency) => update({ incomeFrequency })}
-                    options={[
-                      { value: "monthly", label: "Monthly" },
-                      { value: "yearly", label: "Yearly" },
-                    ]}
-                  />
-                </div>
-                <CalcField
-                  field="incomeAmount"
-                  label="Amount"
-                  hint={
-                    form.incomeFrequency === "monthly"
-                      ? "Salary or other income you can put towards installments, added every month."
-                      : "Income you can put towards installments, added at the end of each year."
-                  }
-                  group
-                  value={form.incomeAmount}
-                  onChange={(v) => update({ incomeAmount: v })}
-                  suffix={`${currency} / ${form.incomeFrequency === "monthly" ? "month" : "year"}`}
-                  placeholder="0"
-                />
-                <CalcField
-                  field="incomeIncreasePct"
-                  label="Annual increase"
-                  hint="How much the amount grows each year. 0–100%."
-                  value={form.incomeIncreasePct}
-                  onChange={(v) => update({ incomeIncreasePct: v })}
-                  suffix="% a year"
-                  placeholder="0"
-                />
+                    <div>
+                      <span className="mb-1.5 block text-xs font-medium text-white/60">How often</span>
+                      <Segmented<IncomeFrequency>
+                        ariaLabel="Income frequency"
+                        value={form.incomeFrequency}
+                        onChange={(incomeFrequency) => update({ incomeFrequency })}
+                        options={[
+                          { value: "monthly", label: "Monthly" },
+                          { value: "yearly", label: "Yearly" },
+                        ]}
+                      />
+                    </div>
+                    <CalcField
+                      field="incomeAmount"
+                      label="Amount"
+                      hint={
+                        form.incomeFrequency === "monthly"
+                          ? "Salary or other income you can put towards installments, added every month."
+                          : "Income you can put towards installments, added at the end of each year."
+                      }
+                      group
+                      value={form.incomeAmount}
+                      onChange={(v) => update({ incomeAmount: v })}
+                      suffix={`${currency} / ${form.incomeFrequency === "monthly" ? "month" : "year"}`}
+                      placeholder="0"
+                    />
+                    <CalcField
+                      field="incomeIncreasePct"
+                      label="Annual increase"
+                      hint="How much the amount grows each year. 0–100%."
+                      value={form.incomeIncreasePct}
+                      onChange={(v) => update({ incomeIncreasePct: v })}
+                      suffix="% a year"
+                      placeholder="0"
+                    />
                     <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">Costs</h3>
-                <CostRow
-                  label="Maintenance deposit"
-                  pctField="maintenancePct"
-                  yearField="maintenanceYear"
-                  pct={form.maintenancePct}
-                  year={form.maintenanceYear}
-                  onPct={(v) => update({ maintenancePct: v })}
-                  onYear={(v) => update({ maintenanceYear: v })}
-                />
-                <CostRow
-                  label="Finishing cost"
-                  pctField="finishingPct"
-                  yearField="finishingYear"
-                  pct={form.finishingPct}
-                  year={form.finishingYear}
-                  onPct={(v) => update({ finishingPct: v })}
-                  onYear={(v) => update({ finishingYear: v })}
-                />
-                <p className="-mt-2 text-[11px] leading-snug text-white/40">
-                  Both are a percentage of the price, charged at the end of the year they are due.
-                </p>
+                    <CostRow
+                      label="Maintenance deposit"
+                      pctField="maintenancePct"
+                      yearField="maintenanceYear"
+                      pct={form.maintenancePct}
+                      year={form.maintenanceYear}
+                      onPct={(v) => update({ maintenancePct: v })}
+                      onYear={(v) => update({ maintenanceYear: v })}
+                    />
+                    <CostRow
+                      label="Finishing cost"
+                      pctField="finishingPct"
+                      yearField="finishingYear"
+                      pct={form.finishingPct}
+                      year={form.finishingYear}
+                      onPct={(v) => update({ finishingPct: v })}
+                      onYear={(v) => update({ finishingYear: v })}
+                    />
+                    <p className="-mt-2 text-[11px] leading-snug text-white/40">
+                      Both are a percentage of the price, charged at the end of the year they are due.
+                    </p>
                   </div>
                 )}
               </Section>
@@ -269,93 +274,91 @@ export default function CapacityCalculator() {
                   {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} onFix={reveal} />}
                   {shown && (
                     <>
-                {capacity && capacity.maxPrice === null ? (
-                  <Card className="animate-rise">
-                    <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
-                    <p className="mt-2 text-sm leading-relaxed text-white/60">
-                      {shown.startingCapital < shown.safetyBuffer
-                        ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
-                            shown.safetyBuffer,
-                          )}), so no property — not even a free one — keeps the fund above it.`
-                        : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
-                      Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
-                    </p>
-                  </Card>
-                ) : (
-                  capacity?.simulation && (
-                    <Hero
-                      sim={capacity.simulation}
-                      capital={shown.startingCapital}
-                      buffer={shown.safetyBuffer}
-                      currency={currency}
-                    />
-                  )
-                )}
+                      {capacity && capacity.maxPrice === null ? (
+                        <Card className="animate-rise">
+                          <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
+                          <p className="mt-2 text-sm leading-relaxed text-white/60">
+                            {shown.startingCapital < shown.safetyBuffer
+                              ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
+                                  shown.safetyBuffer,
+                                )}), so no property — not even a free one — keeps the fund above it.`
+                              : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
+                            Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
+                          </p>
+                        </Card>
+                      ) : (
+                        capacity?.simulation && (
+                          <Hero
+                            sim={capacity.simulation}
+                            capital={shown.startingCapital}
+                            buffer={shown.safetyBuffer}
+                            currency={currency}
+                          />
+                        )
+                      )}
                     </>
                   )}
                 </>
               )}
               {tab === "time" && showing && shown && (
-            <Card
-              title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-              className="animate-rise"
-              style={{ animationDelay: "120ms" }}
-            >
-              <BalanceChart inputs={shown} sim={showing} currency={currency} />
-            </Card>
-
+                <Card
+                  title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+                  className="animate-rise"
+                  style={{ animationDelay: "120ms" }}
+                >
+                  <BalanceChart inputs={shown} sim={showing} currency={currency} />
+                </Card>
               )}
               {tab === "years" && showing && shown && (
-            <Card
-              title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-              className="animate-rise"
-              style={{ animationDelay: "160ms" }}
-            >
-              <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
-            </Card>
+                <Card
+                  title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+                  className="animate-rise"
+                  style={{ animationDelay: "160ms" }}
+                >
+                  <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
+                </Card>
               )}
               {tab === "whatif" && shown && (
                 <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
-                <Card
-                  title="Test a specific price"
-                  className={`animate-rise`}
-                  style={{ animationDelay: "40ms" }}
-                >
-                  <CalcField
-                    field="testPrice"
-                    label="Price to test"
-                    hint="Leave blank to only see the maximum."
-                    group
-                    value={form.testPrice}
-                    onChange={(v) => update({ testPrice: v })}
-                    suffix={currency}
-                    placeholder="e.g. 7,500,000"
-                  />
-                  {tested && (
-                    <div className="mt-3">
-                      <Segmented<"max" | "test">
-                        ariaLabel="Which price the chart and table show"
-                        value={detailsFor === "test" ? "test" : "max"}
-                        onChange={setDetailsFor}
-                        options={[
-                          { value: "max", label: "Show maximum" },
-                          { value: "test", label: "Show tested" },
-                        ]}
-                      />
-                    </div>
-                  )}
-                  {tested && (
-                    <Verdict sim={tested} capital={shown.startingCapital} buffer={shown.safetyBuffer} currency={currency} />
-                  )}
-                </Card>
-
-
-                {hasSensitivity && rows && (
-                  <Card title="If the fund's return changes" className="animate-rise" style={{ animationDelay: "80ms" }}>
-                    <SensitivityTable rows={rows} currency={currency} />
+                  <Card
+                    title="Test a specific price"
+                    className={`animate-rise`}
+                    style={{ animationDelay: "40ms" }}
+                  >
+                    <CalcField
+                      field="testPrice"
+                      label="Price to test"
+                      hint="Leave blank to only see the maximum."
+                      group
+                      value={form.testPrice}
+                      onChange={(v) => update({ testPrice: v })}
+                      suffix={currency}
+                      placeholder="e.g. 7,500,000"
+                    />
+                    {tested && (
+                      <div className="mt-3">
+                        <Segmented<"max" | "test">
+                          ariaLabel="Which price the chart and table show"
+                          value={detailsFor === "test" ? "test" : "max"}
+                          onChange={setDetailsFor}
+                          options={[
+                            { value: "max", label: "Show maximum" },
+                            { value: "test", label: "Show tested" },
+                          ]}
+                        />
+                      </div>
+                    )}
+                    {tested && (
+                      <Verdict sim={tested} capital={shown.startingCapital} buffer={shown.safetyBuffer} currency={currency} />
+                    )}
                   </Card>
-                )}
 
+
+                  {hasSensitivity && rows && (
+                    <Card title="If the fund's return changes" className="animate-rise" style={{ animationDelay: "80ms" }}>
+                      <SensitivityTable rows={rows} currency={currency} />
+                    </Card>
+                  )}
                 </div>
               )}
               {!shown && tab !== "answer" && (
