@@ -2,9 +2,8 @@
 
 import { useEffect, useState, type RefObject } from "react";
 import type { SimulationResult } from "@/lib/capacity";
-import type { FormError } from "@/app/lib/capacityForm";
+import type { FormError, FormField } from "@/app/lib/capacityForm";
 import { formatMoney, formatPct } from "@/app/lib/format";
-import { focusField } from "./formErrors";
 
 /** Scroll the results column's top under the nav; the id carries the scroll margin. */
 function scrollToResults() {
@@ -50,6 +49,8 @@ export function DesktopResultBar({
   maxPrice,
   currency,
   errors,
+  onFix,
+  onShowResults,
 }: {
   visible: boolean;
   /** The simulation at the maximum, for the two figures beside the price. */
@@ -57,6 +58,8 @@ export function DesktopResultBar({
   maxPrice: number | null | undefined;
   currency: string;
   errors: FormError[];
+  onFix: (field: FormField) => void;
+  onShowResults: () => void;
 }) {
   const broken = errors.length > 0;
   return (
@@ -78,7 +81,7 @@ export function DesktopResultBar({
             </span>
             <button
               type="button"
-              onClick={() => focusField(errors[0].field)}
+              onClick={() => onFix(errors[0].field)}
               tabIndex={visible ? 0 : -1}
               className="pressable ml-auto flex min-h-[36px] cursor-pointer items-center gap-1 rounded-lg px-3 text-xs font-medium text-loss hover:bg-white/5"
             >
@@ -101,7 +104,10 @@ export function DesktopResultBar({
             )}
             <button
               type="button"
-              onClick={scrollToResults}
+              onClick={() => {
+                onShowResults();
+                scrollToResults();
+              }}
               tabIndex={visible ? 0 : -1}
               className="pressable ml-auto flex min-h-[36px] cursor-pointer items-center gap-1 rounded-lg px-3 text-xs font-medium text-accent hover:bg-white/5"
             >
@@ -130,11 +136,15 @@ export default function LiveResult({
   maxPrice,
   currency,
   errors,
+  onFix,
+  onShowResults,
 }: {
   /** The maximum, null when nothing is affordable, undefined when there is no result yet. */
   maxPrice: number | null | undefined;
   currency: string;
   errors: FormError[];
+  onFix: (field: FormField) => void;
+  onShowResults: () => void;
 }) {
   const broken = errors.length > 0;
 
@@ -142,7 +152,14 @@ export default function LiveResult({
     <div className="sticky z-40 lg:hidden" style={{ top: "calc(var(--top-nav-clearance) + 8px)" }}>
       <button
         type="button"
-        onClick={broken ? () => focusField(errors[0].field) : scrollToResults}
+        onClick={
+          broken
+            ? () => onFix(errors[0].field)
+            : () => {
+                onShowResults();
+                scrollToResults();
+              }
+        }
         aria-live="polite"
         className={`pressable flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-2 text-left shadow-lg shadow-black/40 backdrop-blur-xl active:bg-white/5 ${
           broken ? "border-loss/30 bg-charcoal/90" : "border-white/10 bg-charcoal/85"

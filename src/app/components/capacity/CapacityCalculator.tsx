@@ -10,12 +10,15 @@ import {
 } from "@/lib/capacity";
 import { parseForm, type CapacityForm, type FormError, type FormField } from "@/app/lib/capacityForm";
 import { useCapacityForm } from "@/app/lib/capacityFormStore";
+import { SECTIONS, sectionOf, sectionSummary, type SectionId } from "@/app/lib/capacitySections";
 import { formatMoney, formatPct } from "@/app/lib/format";
 import BalanceChart from "./BalanceChart";
 import { CalcField, FormErrorsProvider, fieldId, focusField, useFormErrors, useVisibleErrors } from "./formErrors";
 import LiveResult, { DesktopResultBar, useScrolledPast } from "./LiveResult";
+import ResultTabs, { tabPanelProps, type ResultTab } from "./ResultTabs";
 import RateInput from "./RateInput";
 import ScheduleEditor from "./ScheduleEditor";
+import Section from "./Section";
 import SensitivityTable from "./SensitivityTable";
 import YearTable from "./YearTable";
 import { Card, Field, FieldError, Segmented, Stat, useFieldState } from "../ui";
@@ -41,12 +44,34 @@ import { Card, Field, FieldError, Segmented, Stat, useFieldState } from "../ui";
 export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
   const [detailsFor, setDetailsFor] = useState<"max" | "test">("max");
+  const [openSection, setOpenSection] = useState<SectionId | null>("buy");
+  const [tab, setTab] = useState<ResultTab>("answer");
   const headlineRef = useRef<HTMLDivElement | null>(null);
   const pastHeadline = useScrolledPast(headlineRef);
 
   const parsed = useMemo(() => parseForm(form), [form]);
   const { inputs, errors, byField, testPrice } = parsed;
   const visible = useVisibleErrors(byField);
+
+  /** Open what holds a field (a section, or the What if tab), then focus it once it has rendered. */
+  const reveal = (field: FormField) => {
+    const section = sectionOf(field);
+    if (section) setOpenSection(section);
+    else setTab("whatif");
+    requestAnimationFrame(() => requestAnimationFrame(() => focusField(field)));
+  };
+  const toggleSection = (id: SectionId) => {
+    setOpenSection((cur) => (cur === id ? null : id));
+    // The section above may fold as this one opens; keep this one's header in view.
+    requestAnimationFrame(() =>
+      document.getElementById(`section-${id}-root`)?.scrollIntoView({
+        block: "nearest",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      }),
+    );
+  };
+  // The blocking errors are what must be findable from a closed section.
+  const sectionHasError = (id: SectionId) => errors.some((e) => sectionOf(e.field) === id);
 
   // The last inputs that parsed. Adjusted during render (React's "previous
   // render" pattern) rather than in an effect, so there is no setState-in-
@@ -101,11 +126,28 @@ export default function CapacityCalculator() {
 
         <div className="lg:grid lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start lg:gap-6">
           {/* ------------------------------------------------------------ inputs */}
-          <div className="space-y-4">
-            <LiveResult maxPrice={capacity ? capacity.maxPrice : undefined} currency={currency} errors={errors} />
+          <div className="space-y-3">
+            <LiveResult
+              maxPrice={capacity ? capacity.maxPrice : undefined}
+              currency={currency}
+              errors={errors}
+              onFix={reveal}
+              onShowResults={() => setTab("answer")}
+            />
 
-            <Card title="Capital & returns">
-              <div className="space-y-4">
+            {SECTIONS.map(({ id, title }) => (
+              <Section
+                key={id}
+                id={id}
+                title={title}
+                summary={sectionSummary(id, form)}
+                open={openSection === id}
+                onToggle={() => toggleSection(id)}
+                hasError={sectionHasError(id)}
+              >
+                {id === "buy" && <p className="text-sm text-white/50">Developer installments.</p>}
+                {id === "money" && (
+                  <div className="space-y-4">
                 <CapitalRow form={form} update={update} />
                 <RateInput form={form} update={update} />
                 <CalcField
@@ -117,13 +159,6 @@ export default function CapacityCalculator() {
                   suffix="%"
                   placeholder="0"
                 />
-              </div>
-            </Card>
-
-            {/* The two floors on the fund — one during the plan, one at its
-                end — right under the capital they are measured against. */}
-            <Card title="What must stay in the fund">
-              <div className="space-y-4">
                 <CalcField
                   field="safetyBuffer"
                   label="Safety buffer"
@@ -143,15 +178,12 @@ export default function CapacityCalculator() {
                   suffix="% of capital"
                   placeholder="0"
                 />
-              </div>
-            </Card>
-
-            <Card title="Payment plan">
-              <ScheduleEditor form={form} update={update} />
-            </Card>
-
-            <Card title="Extra income">
-              <div className="space-y-4">
+                  </div>
+                )}
+                {id === "payments" && <ScheduleEditor form={form} update={update} />}
+                {id === "loan" && <p className="text-sm text-white/50">No loan.</p>}
+                {id === "extras" && (
+                  <div className="space-y-4">
                 <div>
                   <span className="mb-1.5 block text-xs font-medium text-white/60">How often</span>
                   <Segmented<IncomeFrequency>
@@ -187,11 +219,7 @@ export default function CapacityCalculator() {
                   suffix="% a year"
                   placeholder="0"
                 />
-              </div>
-            </Card>
-
-            <Card title="Extra costs">
-              <div className="space-y-4">
+                    <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">Costs</h3>
                 <CostRow
                   label="Maintenance deposit"
                   pctField="maintenancePct"
@@ -213,8 +241,10 @@ export default function CapacityCalculator() {
                 <p className="-mt-2 text-[11px] leading-snug text-white/40">
                   Both are a percentage of the price, charged at the end of the year they are due.
                 </p>
-              </div>
-            </Card>
+                  </div>
+                )}
+              </Section>
+            ))}
           </div>
 
           {/* ----------------------------------------------------------- results */}
@@ -225,49 +255,70 @@ export default function CapacityCalculator() {
               maxPrice={capacity ? capacity.maxPrice : undefined}
               currency={currency}
               errors={errors}
+              onFix={reveal}
+              onShowResults={() => setTab("answer")}
             />
 
-            {/* The headline block: what the condensed bar stands in for once it has scrolled away. */}
-            <div ref={headlineRef} className="space-y-4">
-              {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} />}
-              {shown && (
-                <div className={`transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
-                  {capacity && capacity.maxPrice === null ? (
-                    <Card className="animate-rise">
-                      <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
-                      <p className="mt-2 text-sm leading-relaxed text-white/60">
-                        {shown.startingCapital < shown.safetyBuffer
-                          ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
-                              shown.safetyBuffer,
-                            )}), so no property — not even a free one — keeps the fund above it.`
-                          : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
-                        Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
-                      </p>
-                    </Card>
-                  ) : (
-                    capacity?.simulation && (
-                      <Hero
-                        sim={capacity.simulation}
-                        capital={shown.startingCapital}
-                        buffer={shown.safetyBuffer}
-                        currency={currency}
-                      />
-                    )
-                  )}
-                </div>
-              )}
+            <div ref={headlineRef}>
+              <ResultTabs value={tab} onChange={setTab} />
             </div>
 
-            {shown && (
-              <div
-                className={`mt-4 space-y-4 transition-opacity xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0 ${
-                  stale ? "opacity-50" : ""
-                }`}
-                aria-busy={stale}
-              >
+            <div {...tabPanelProps(tab)} className={`mt-4 space-y-4 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
+              {tab === "answer" && (
+                <>
+                  {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} onFix={reveal} />}
+                  {shown && (
+                    <>
+                {capacity && capacity.maxPrice === null ? (
+                  <Card className="animate-rise">
+                    <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
+                    <p className="mt-2 text-sm leading-relaxed text-white/60">
+                      {shown.startingCapital < shown.safetyBuffer
+                        ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
+                            shown.safetyBuffer,
+                          )}), so no property — not even a free one — keeps the fund above it.`
+                        : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
+                      Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
+                    </p>
+                  </Card>
+                ) : (
+                  capacity?.simulation && (
+                    <Hero
+                      sim={capacity.simulation}
+                      capital={shown.startingCapital}
+                      buffer={shown.safetyBuffer}
+                      currency={currency}
+                    />
+                  )
+                )}
+                    </>
+                  )}
+                </>
+              )}
+              {tab === "time" && showing && shown && (
+            <Card
+              title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+              className="animate-rise"
+              style={{ animationDelay: "120ms" }}
+            >
+              <BalanceChart inputs={shown} sim={showing} currency={currency} />
+            </Card>
+
+              )}
+              {tab === "years" && showing && shown && (
+            <Card
+              title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+              className="animate-rise"
+              style={{ animationDelay: "160ms" }}
+            >
+              <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
+            </Card>
+              )}
+              {tab === "whatif" && shown && (
+                <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
                 <Card
                   title="Test a specific price"
-                  className={`animate-rise xl:order-1 ${hasSensitivity ? "" : "xl:col-span-2"}`}
+                  className={`animate-rise`}
                   style={{ animationDelay: "40ms" }}
                 >
                   <CalcField
@@ -298,37 +349,22 @@ export default function CapacityCalculator() {
                   )}
                 </Card>
 
+
                 {hasSensitivity && rows && (
-                  <Card title="If the fund's return changes" className="animate-rise xl:order-2" style={{ animationDelay: "80ms" }}>
+                  <Card title="If the fund's return changes" className="animate-rise" style={{ animationDelay: "80ms" }}>
                     <SensitivityTable rows={rows} currency={currency} />
                   </Card>
                 )}
 
-                {showing && (
-                  <>
-                    <Card
-                      title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-                      className="animate-rise xl:order-3 xl:col-span-2"
-                      style={{ animationDelay: "120ms" }}
-                    >
-                      <BalanceChart inputs={shown} sim={showing} currency={currency} />
-                    </Card>
-
-                    <Card
-                      title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-                      className="animate-rise xl:order-4 xl:col-span-2"
-                      style={{ animationDelay: "160ms" }}
-                    >
-                      <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
-                    </Card>
-                  </>
-                )}
-
-                <p className="px-1 text-xs text-white/40 xl:order-5 xl:col-span-2">
-                  Estimates assume a constant return rate. Fund returns vary and are not guaranteed.
-                </p>
-              </div>
-            )}
+                </div>
+              )}
+              {!shown && tab !== "answer" && (
+                <p className="text-sm text-white/50">Fix the inputs to see this.</p>
+              )}
+              <p className="px-1 text-xs text-white/40">
+                Estimates assume a constant return rate. Fund returns vary and are not guaranteed.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -341,7 +377,15 @@ export default function CapacityCalculator() {
  * from its field. On a phone this sits under the form, so the jump matters;
  * on desktop it is the first thing in the results column.
  */
-function ErrorSummary({ errors, hasResult }: { errors: FormError[]; hasResult: boolean }) {
+function ErrorSummary({
+  errors,
+  hasResult,
+  onFix,
+}: {
+  errors: FormError[];
+  hasResult: boolean;
+  onFix: (field: FormField) => void;
+}) {
   return (
     <Card className="border-loss/30">
       <h2 className="text-sm font-semibold text-white">
@@ -355,7 +399,7 @@ function ErrorSummary({ errors, hasResult }: { errors: FormError[]; hasResult: b
           <li key={`${e.field}-${i}`}>
             <button
               type="button"
-              onClick={() => focusField(e.field)}
+              onClick={() => onFix(e.field)}
               className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-md px-1 text-left text-sm transition-colors hover:bg-white/[0.03] active:bg-white/5"
             >
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-loss" aria-hidden />
