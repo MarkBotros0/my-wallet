@@ -36,6 +36,7 @@ describe("parseForm", () => {
       safetyBuffer: 500_000,
       returnFee: 0,
       minKeptShare: 0,
+      purchase: { kind: "developer-plan", cashDiscount: 0, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
     });
   });
 
@@ -174,5 +175,102 @@ describe("normalizeForm", () => {
   it("returns the defaults for anything that is not an object", () => {
     expect(normalizeForm(null)).toEqual(DEFAULT_FORM);
     expect(normalizeForm("nope")).toEqual(DEFAULT_FORM);
+  });
+});
+
+describe("parseForm — purchase and loan", () => {
+  it("parses a resale with a loan", () => {
+    const { inputs, errors } = parseForm(
+      form({
+        purchaseKind: "resale",
+        resaleRemaining: "5,000,000",
+        resaleYears: "4",
+        resaleFrequency: "quarterly",
+        loanEnabled: true,
+        loanSharePct: "90",
+        loanFlatRatePct: "12",
+        loanYears: "5",
+        lendingRatioPct: "100",
+        certificateRatePct: "11",
+        pledgeRelease: "gradual",
+      }),
+    );
+    expect(errors).toEqual([]);
+    expect(inputs!.purchase).toEqual({
+      kind: "resale",
+      cashDiscount: 0,
+      resaleRemaining: 5_000_000,
+      resaleYears: 4,
+      resaleFrequency: "quarterly",
+    });
+    expect(inputs!.loan).toEqual({
+      enabled: true,
+      share: 0.9,
+      flatRate: 0.12,
+      years: 5,
+      lendingRatio: 1,
+      certificateRate: 0.11,
+      release: "gradual",
+    });
+  });
+
+  it("reads a blank cash discount as 0 and a typed one as a fraction", () => {
+    expect(parseForm(form({ purchaseKind: "developer-cash" })).inputs!.purchase!.cashDiscount).toBe(0);
+    expect(parseForm(form({ purchaseKind: "developer-cash", cashDiscountPct: "30" })).inputs!.purchase!.cashDiscount).toBe(0.3);
+  });
+
+  it("does not let the hidden plan fields block a resale", () => {
+    const { inputs, errors, byField } = parseForm(
+      form({ purchaseKind: "resale", resaleRemaining: "0", resaleYears: "3", planYears: "", downPaymentPct: "abc" }),
+    );
+    expect(errors).toEqual([]);
+    expect(byField.planYears).toBeUndefined();
+    expect(inputs).not.toBeNull();
+  });
+
+  it("ignores the loan fields while the loan is off", () => {
+    const { inputs, errors } = parseForm(form({ loanEnabled: false, loanYears: "", lendingRatioPct: "x" }));
+    expect(errors).toEqual([]);
+    expect(inputs!.loan).toBeUndefined();
+  });
+
+  it("puts loan problems on the loan's fields", () => {
+    // A blank field is caught before the engine runs (existing behaviour), so
+    // only it is reported; once every field is a number the engine speaks.
+    const { errors } = parseForm(form({ loanEnabled: true, loanYears: "" }));
+    expect(errors.map((e) => e.field)).toEqual(["loanYears"]);
+    const second = parseForm(form({ loanEnabled: true, lendingRatioPct: "0" }));
+    expect(second.errors.map((e) => e.field)).toEqual(["lendingRatioPct"]);
+  });
+
+  it("lists purchase fields before the capital and loan fields after the plan", () => {
+    const { errors } = parseForm(
+      form({
+        purchaseKind: "resale",
+        resaleRemaining: "0",
+        resaleYears: "20",
+        startingCapital: "-1",
+        loanEnabled: true,
+        loanSharePct: "150",
+      }),
+    );
+    expect(errors.map((e) => e.field)).toEqual(["resaleYears", "startingCapital", "loanSharePct"]);
+  });
+});
+
+describe("normalizeForm — the new fields", () => {
+  it("opens a saved pre-loan form on developer installments with the loan off", () => {
+    const old = { ...DEFAULT_FORM } as Record<string, unknown>;
+    for (const k of ["purchaseKind", "loanEnabled", "pledgeRelease", "loanRatesEdited", "resaleYears"]) delete old[k];
+    const f = normalizeForm(old);
+    expect(f.purchaseKind).toBe("developer-plan");
+    expect(f.loanEnabled).toBe(false);
+    expect(f.pledgeRelease).toBe("at-end");
+  });
+  it("replaces an unknown kind, release or frequency with the default", () => {
+    const f = normalizeForm({ ...DEFAULT_FORM, purchaseKind: "lease", pledgeRelease: "never", resaleFrequency: "daily" });
+    expect(f.purchaseKind).toBe("developer-plan");
+    expect(f.pledgeRelease).toBe("at-end");
+    expect(f.resaleFrequency).toBe("yearly");
   });
 });

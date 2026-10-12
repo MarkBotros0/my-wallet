@@ -5,7 +5,11 @@ import {
   type CompoundingFrequency,
   type IncomeFrequency,
   type InputField,
+  type LoanInput,
   type PaymentFrequency,
+  type PledgeRelease,
+  type PurchaseInput,
+  type PurchaseKind,
 } from "@/lib/capacity";
 import { formatPct } from "./format";
 import { parseNumber } from "./numbers";
@@ -51,6 +55,22 @@ export interface CapacityForm {
   keepPct: string;
   /** A specific price to test; blank means none. */
   testPrice: string;
+  purchaseKind: PurchaseKind;
+  /** developer-cash: % off the installment price; blank = none. */
+  cashDiscountPct: string;
+  /** resale: what the seller still owes the developer. */
+  resaleRemaining: string;
+  resaleYears: string;
+  resaleFrequency: PaymentFrequency;
+  loanEnabled: boolean;
+  loanSharePct: string;
+  loanFlatRatePct: string;
+  loanYears: string;
+  lendingRatioPct: string;
+  certificateRatePct: string;
+  pledgeRelease: PledgeRelease;
+  /** False until the user edits a bank rate — until then they are labelled as examples. */
+  loanRatesEdited: boolean;
 }
 
 export const DEFAULT_FORM: CapacityForm = {
@@ -77,6 +97,20 @@ export const DEFAULT_FORM: CapacityForm = {
   returnFeePct: "",
   keepPct: "",
   testPrice: "",
+  purchaseKind: "developer-plan",
+  cashDiscountPct: "",
+  resaleRemaining: "",
+  resaleYears: "4",
+  resaleFrequency: "yearly",
+  loanEnabled: false,
+  loanSharePct: "100",
+  // Examples, labelled as such until edited — never mistaken for a quote.
+  loanFlatRatePct: "12",
+  loanYears: "5",
+  lendingRatioPct: "100",
+  certificateRatePct: "11",
+  pledgeRelease: "at-end",
+  loanRatesEdited: false,
 };
 
 export const COMPOUNDING_LABELS: Record<CompoundingOption, string> = {
@@ -128,7 +162,15 @@ export type FormField =
   | "finishingYear"
   | "safetyBuffer"
   | "keepPct"
-  | "testPrice";
+  | "testPrice"
+  | "cashDiscountPct"
+  | "resaleRemaining"
+  | "resaleYears"
+  | "loanSharePct"
+  | "loanFlatRatePct"
+  | "loanYears"
+  | "lendingRatioPct"
+  | "certificateRatePct";
 
 export interface FormError {
   field: FormField;
@@ -137,6 +179,9 @@ export interface FormError {
 
 /** The page's order, so a list of errors reads top to bottom. Year fields slot in after the down payment. */
 const FIELD_ORDER: readonly FormField[] = [
+  "cashDiscountPct",
+  "resaleRemaining",
+  "resaleYears",
   "startingCapital",
   "currency",
   "effectiveRatePct",
@@ -147,6 +192,11 @@ const FIELD_ORDER: readonly FormField[] = [
   "planYears",
   "downPaymentPct",
   "yearPcts",
+  "loanSharePct",
+  "loanFlatRatePct",
+  "loanYears",
+  "certificateRatePct",
+  "lendingRatioPct",
   "incomeAmount",
   "incomeIncreasePct",
   "maintenancePct",
@@ -155,6 +205,9 @@ const FIELD_ORDER: readonly FormField[] = [
   "finishingYear",
   "testPrice",
 ];
+
+/** The developer-plan fields — hidden for a resale, collapsed for a cash purchase. */
+export const PLAN_FIELDS: readonly FormField[] = ["planYears", "downPaymentPct", "yearPcts"];
 
 function fieldOrder(field: FormField): number {
   if (field.startsWith("year-")) return FIELD_ORDER.indexOf("yearPcts") - 0.5 + Number(field.slice(5)) / 1e6;
@@ -176,6 +229,14 @@ const ENGINE_FIELDS: Record<Exclude<InputField, "effectiveAnnualRate">, FormFiel
   "maintenance.year": "maintenanceYear",
   "finishing.share": "finishingPct",
   "finishing.year": "finishingYear",
+  "purchase.cashDiscount": "cashDiscountPct",
+  "purchase.resaleRemaining": "resaleRemaining",
+  "purchase.resaleYears": "resaleYears",
+  "loan.share": "loanSharePct",
+  "loan.flatRate": "loanFlatRatePct",
+  "loan.years": "loanYears",
+  "loan.lendingRatio": "lendingRatioPct",
+  "loan.certificateRate": "certificateRatePct",
 };
 
 export interface ParsedForm {
@@ -216,11 +277,18 @@ export function parseForm(form: CapacityForm): ParsedForm {
       ? required(rateField, form.effectiveRatePct, "Return rate") / 100
       : effectiveFromNominal(required(rateField, form.nominalRatePct, "Return rate") / 100, n);
 
-  const planYears = required("planYears", form.planYears, "Plan length");
-  const downPayment = required("downPaymentPct", form.downPaymentPct, "Down payment") / 100;
+  const kind = form.purchaseKind;
+  // A resale has no plan on screen: read its fields quietly (the engine
+  // ignores them for a resale) so a stale value can never block the result.
+  const quiet = kind === "resale";
+  const planNumber = (field: FormField, raw: string, label: string, fallback: number) =>
+    quiet ? (parseNumber(raw) ?? fallback) : required(field, raw, label);
+
+  const planYears = planNumber("planYears", form.planYears, "Plan length", 1);
+  const downPayment = planNumber("downPaymentPct", form.downPaymentPct, "Down payment", 0) / 100;
 
   const schedule: CalculatorInputs["schedule"] =
-    form.scheduleMode === "custom"
+    form.scheduleMode === "custom" && !quiet
       ? {
           downPayment,
           planYears,
@@ -231,6 +299,26 @@ export function parseForm(form: CapacityForm): ParsedForm {
           frequency: form.frequency,
         }
       : { downPayment, planYears, mode: "equal", frequency: form.frequency };
+
+  const purchase: PurchaseInput = {
+    kind,
+    cashDiscount: kind === "developer-cash" ? optional("cashDiscountPct", form.cashDiscountPct, "Cash discount") / 100 : 0,
+    resaleRemaining: kind === "resale" ? required("resaleRemaining", form.resaleRemaining, "What's still owed") : 0,
+    resaleYears: kind === "resale" ? required("resaleYears", form.resaleYears, "Years left") : 1,
+    resaleFrequency: form.resaleFrequency,
+  };
+
+  const loan: LoanInput | undefined = form.loanEnabled
+    ? {
+        enabled: true,
+        share: required("loanSharePct", form.loanSharePct, "Loan share") / 100,
+        flatRate: required("loanFlatRatePct", form.loanFlatRatePct, "Flat rate") / 100,
+        years: required("loanYears", form.loanYears, "Loan length"),
+        lendingRatio: required("lendingRatioPct", form.lendingRatioPct, "Lending ratio") / 100,
+        certificateRate: optional("certificateRatePct", form.certificateRatePct, "Certificate rate") / 100,
+        release: form.pledgeRelease,
+      }
+    : undefined;
 
   const inputs: CalculatorInputs = {
     startingCapital,
@@ -252,6 +340,8 @@ export function parseForm(form: CapacityForm): ParsedForm {
     safetyBuffer: optional("safetyBuffer", form.safetyBuffer, "Safety buffer"),
     returnFee: optional("returnFeePct", form.returnFeePct, "Fees on returns") / 100,
     minKeptShare: optional("keepPct", form.keepPct, "Savings to keep at the end") / 100,
+    purchase,
+    ...(loan ? { loan } : {}),
   };
 
   // Only run the engine's own checks once every field is at least a number —
@@ -292,6 +382,13 @@ export function parseForm(form: CapacityForm): ParsedForm {
   return { inputs: errors.length === 0 ? inputs : null, errors, byField, testPrice };
 }
 
+/** String fields that must be one of a few values; anything else falls back to the default. */
+const CHOICES: Partial<Record<keyof CapacityForm, readonly string[]>> = {
+  purchaseKind: ["developer-plan", "developer-cash", "resale"],
+  pledgeRelease: ["at-end", "gradual"],
+  resaleFrequency: ["yearly", "quarterly", "monthly"],
+};
+
 /**
  * Rebuild a form from whatever was persisted: every known field with the
  * right type is kept, anything missing, mistyped or unknown falls back to the
@@ -307,7 +404,8 @@ export function normalizeForm(raw: unknown): CapacityForm {
     if (Array.isArray(def)) {
       out[key] = Array.isArray(val) && val.every((v) => typeof v === "string") ? val : def;
     } else {
-      out[key] = typeof val === typeof def ? val : def;
+      const allowed = CHOICES[key];
+      out[key] = typeof val === typeof def && (!allowed || allowed.includes(val as string)) ? val : def;
     }
   }
   return out as unknown as CapacityForm;
