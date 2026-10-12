@@ -1,6 +1,6 @@
-import { horizonYears } from "./purchase";
+import { horizonYears, purchaseOf } from "./purchase";
 import { isFeasible, simulate } from "./simulate";
-import type { CalculatorInputs, CapacityResult, SensitivityRow } from "./types";
+import type { CalculatorInputs, CapacityResult, Comparison, SensitivityRow } from "./types";
 
 /**
  * Find the most expensive property the plan can carry.
@@ -67,4 +67,37 @@ export function sensitivity(
     const { maxPrice } = maxFeasiblePrice({ ...inputs, effectiveAnnualRate }, step);
     return { delta, effectiveAnnualRate, maxPrice };
   });
+}
+
+/**
+ * The same purchase paid without the bank: the loan switched off, and a
+ * developer cash purchase — which only makes sense with money in hand —
+ * replaced by the developer's installment plan it would otherwise be.
+ */
+export function withoutLoan(inputs: CalculatorInputs): CalculatorInputs {
+  const purchase = purchaseOf(inputs);
+  return {
+    ...inputs,
+    loan: inputs.loan ? { ...inputs.loan, enabled: false } : undefined,
+    purchase: purchase.kind === "developer-cash" ? { ...purchase, kind: "developer-plan" } : purchase,
+  };
+}
+
+/**
+ * "Is the loan worth it?" — both maxima, and both simulations at a price
+ * being checked, over ONE horizon (the deal's, which is never shorter than
+ * the alternative's) so the two final balances are measured on the same date.
+ */
+export function compare(inputs: CalculatorInputs, testPrice: number | null = null, step = DEFAULT_STEP): Comparison {
+  const horizon = horizonYears(inputs);
+  const base = withoutLoan(inputs);
+  return {
+    horizonYears: horizon,
+    withLoan: maxFeasiblePrice(inputs, step, horizon),
+    withoutLoan: maxFeasiblePrice(base, step, horizon),
+    tested:
+      testPrice === null
+        ? null
+        : { withLoan: simulate(inputs, testPrice, horizon), withoutLoan: simulate(base, testPrice, horizon) },
+  };
 }

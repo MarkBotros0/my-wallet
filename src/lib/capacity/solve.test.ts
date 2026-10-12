@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { REFERENCE } from "./fixtures";
 import { simulate, validateInputs } from "./simulate";
-import { maxFeasiblePrice, sensitivity } from "./solve";
+import { compare, maxFeasiblePrice, sensitivity, withoutLoan } from "./solve";
 import type { CalculatorInputs, LoanInput, PurchaseInput } from "./types";
 
 const withInputs = (over: Partial<CalculatorInputs>): CalculatorInputs => ({ ...REFERENCE, ...over });
@@ -172,4 +172,37 @@ describe("maxFeasiblePrice — monotonic for every kind, loan on and off", () =>
       });
     }
   }
+});
+
+describe("withoutLoan / compare", () => {
+  const LOAN: LoanInput = {
+    enabled: true, share: 1, flatRate: 0.1, years: 10, lendingRatio: 1, certificateRate: 0.15, release: "at-end",
+  };
+  const CASH: PurchaseInput = {
+    kind: "developer-cash", cashDiscount: 0.3, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly",
+  };
+
+  it("turns the loan off, and a cash purchase back into the developer's plan", () => {
+    const base = withoutLoan(withInputs({ purchase: CASH, loan: LOAN }));
+    expect(base.loan?.enabled ?? false).toBe(false);
+    expect(base.purchase!.kind).toBe("developer-plan");
+    const resale = withoutLoan(withInputs({ purchase: { ...CASH, kind: "resale", resaleYears: 3 }, loan: LOAN }));
+    expect(resale.purchase!.kind).toBe("resale");
+  });
+
+  it("measures both sides over the deal's horizon, so the endings share a date", () => {
+    const c = compare(withInputs({ purchase: CASH, loan: LOAN }), 5_000_000);
+    expect(c.horizonYears).toBe(10);
+    expect(c.tested!.withLoan.monthly).toHaveLength(121);
+    expect(c.tested!.withoutLoan.monthly).toHaveLength(121);
+    expect(c.withoutLoan.simulation!.horizonYears).toBe(10);
+  });
+
+  it("solves both maxima; the with-loan side equals solving the deal on its own", () => {
+    const inputs = withInputs({ purchase: CASH, loan: LOAN });
+    const c = compare(inputs);
+    expect(c.withLoan.maxPrice).toBe(maxFeasiblePrice(inputs).maxPrice);
+    expect(c.withoutLoan.maxPrice).toBe(maxFeasiblePrice(withoutLoan(inputs), undefined, 10).maxPrice);
+    expect(c.tested).toBeNull();
+  });
 });

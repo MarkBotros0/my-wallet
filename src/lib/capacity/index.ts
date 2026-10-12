@@ -17,4 +17,22 @@ export {
   yearShares,
 } from "./schedule";
 export { inputProblems, isFeasible, simulate, validateInputs } from "./simulate";
-export { DEFAULT_SENSITIVITY_DELTAS, DEFAULT_STEP, maxFeasiblePrice, sensitivity } from "./solve";
+export { decliningRateFromFlat, loanProblems, loanTerms, pledgeHeld, type LoanTerms } from "./loan";
+export {
+  DEFAULT_PURCHASE,
+  activeLoan,
+  buildDeal,
+  developerYears,
+  horizonYears,
+  purchaseOf,
+  purchaseProblems,
+  type Deal,
+} from "./purchase";
+export {
+  DEFAULT_SENSITIVITY_DELTAS,
+  DEFAULT_STEP,
+  compare,
+  maxFeasiblePrice,
+  sensitivity,
+  withoutLoan,
+} from "./solve";
