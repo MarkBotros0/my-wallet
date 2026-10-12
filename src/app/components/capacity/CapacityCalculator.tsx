@@ -2,10 +2,14 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
+  compare,
   maxFeasiblePrice,
+  purchaseOf,
   sensitivity,
   simulate,
+  type Comparison,
   type IncomeFrequency,
+  type PurchaseKind,
   type SimulationResult,
 } from "@/lib/capacity";
 import { PLAN_FIELDS, parseForm, type CapacityForm, type FormError, type FormField } from "@/app/lib/capacityForm";
@@ -13,8 +17,10 @@ import { useCapacityForm } from "@/app/lib/capacityFormStore";
 import { SECTIONS, sectionOf, sectionSummary, type SectionId } from "@/app/lib/capacitySections";
 import { formatMoney, formatPct } from "@/app/lib/format";
 import BalanceChart from "./BalanceChart";
+import DealSummary from "./DealSummary";
 import { CalcField, FormErrorsProvider, fieldId, focusField, useFormErrors, useVisibleErrors } from "./formErrors";
 import LoanCard from "./LoanCard";
+import LoanComparison from "./LoanComparison";
 import LiveResult, { DesktopResultBar, useScrolledPast } from "./LiveResult";
 import ResultTabs, { tabPanelProps, type ResultTab } from "./ResultTabs";
 import PurchasePicker, { ResaleFields } from "./PurchasePicker";
@@ -89,12 +95,23 @@ export default function CapacityCalculator() {
   const shown = inputs ?? lastInputs;
   const stale = inputs === null;
 
-  const capacity = useMemo(() => (shown ? maxFeasiblePrice(shown) : null), [shown]);
+  const loanOn = shown?.loan?.enabled === true;
+  // With a loan, one call solves both sides over one horizon; the deal's own
+  // maximum is its with-loan side.
+  const comparison: Comparison | null = useMemo(
+    () => (shown && loanOn ? compare(shown, testPrice) : null),
+    [shown, loanOn, testPrice],
+  );
+  const capacity = useMemo(
+    () => (comparison ? comparison.withLoan : shown ? maxFeasiblePrice(shown) : null),
+    [comparison, shown],
+  );
   const rows = useMemo(() => (shown ? sensitivity(shown) : null), [shown]);
   const tested = useMemo(
-    () => (shown && testPrice !== null ? simulate(shown, testPrice) : null),
-    [shown, testPrice],
+    () => (comparison ? (comparison.tested?.withLoan ?? null) : shown && testPrice !== null ? simulate(shown, testPrice) : null),
+    [comparison, shown, testPrice],
   );
+  const kind: PurchaseKind = shown ? purchaseOf(shown).kind : "developer-plan";
 
   const currency = form.currency.trim().toUpperCase() || "EGP";
   const money = (n: number) => formatMoney(n, currency);
@@ -141,6 +158,9 @@ export default function CapacityCalculator() {
               errors={errors}
               onFix={reveal}
               onShowResults={() => setTab("answer")}
+              loanDifference={
+                comparison ? (comparison.withLoan.maxPrice ?? 0) - (comparison.withoutLoan.maxPrice ?? 0) : null
+              }
             />
 
             {SECTIONS.map(({ id, title }) => (
@@ -308,17 +328,25 @@ export default function CapacityCalculator() {
                                   )}), so no property — not even a free one — keeps the fund above it.`
                                 : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
                               Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
+                              {loanOn
+                                ? " With a loan, the pledge counts as locked, not spendable — a lower lending ratio or a smaller loan share frees more of your savings."
+                                : ""}
                             </p>
                           </Card>
                         ) : (
                           capacity?.simulation && (
                             <Hero
+                              kind={kind}
                               sim={capacity.simulation}
                               capital={shown.startingCapital}
                               buffer={shown.safetyBuffer}
                               currency={currency}
                             />
                           )
+                        )}
+                        {comparison && <LoanComparison inputs={shown} comparison={comparison} currency={currency} />}
+                        {showing && (
+                          <DealSummary inputs={shown} sim={showing} atPrice={showing === tested ? "test" : "max"} currency={currency} />
                         )}
                       </>
                     )}
@@ -345,13 +373,15 @@ export default function CapacityCalculator() {
                 {tab === "whatif" && shown && (
                   <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
                     <Card
-                      title="Test a specific price"
+                      title="Check this deal"
                       className={`animate-rise`}
                       style={{ animationDelay: "40ms" }}
                     >
                       <CalcField
                         field="testPrice"
-                        label="Price to test"
+                        label={
+                          kind === "resale" ? "Cash to the seller" : kind === "developer-cash" ? "Installment price" : "Price"
+                        }
                         hint="Leave blank to only see the maximum."
                         group
                         value={form.testPrice}
@@ -373,7 +403,22 @@ export default function CapacityCalculator() {
                         </div>
                       )}
                       {tested && (
-                        <Verdict sim={tested} capital={shown.startingCapital} buffer={shown.safetyBuffer} currency={currency} />
+                        <Verdict
+                          sim={tested}
+                          capital={shown.startingCapital}
+                          buffer={shown.safetyBuffer}
+                          currency={currency}
+                          label={comparison ? "With the loan" : undefined}
+                        />
+                      )}
+                      {comparison?.tested && (
+                        <Verdict
+                          sim={comparison.tested.withoutLoan}
+                          capital={shown.startingCapital}
+                          buffer={shown.safetyBuffer}
+                          currency={currency}
+                          label={kind === "developer-cash" ? "On the installment plan" : "Without the loan"}
+                        />
                       )}
                     </Card>
 
@@ -448,11 +493,13 @@ function ErrorSummary({
  * states it once — so a wide number never wraps inside a narrow tile.
  */
 function Hero({
+  kind,
   sim,
   capital,
   buffer,
   currency,
 }: {
+  kind: PurchaseKind;
   sim: SimulationResult;
   capital: number;
   buffer: number;
@@ -462,22 +509,28 @@ function Hero({
   const figure = (n: number) => formatMoney(n, "");
   return (
     <Card className="animate-rise">
-      <div className="text-xs font-medium text-white/50">Maximum buying capacity</div>
+      <div className="text-xs font-medium text-white/50">
+        {kind === "resale" ? "Most you can pay the seller" : "Maximum buying capacity"}
+      </div>
       {/* The hero figure: same sans as everything else, proportional digits. */}
       <div className="mt-1 text-4xl font-bold leading-none tracking-tight text-white md:text-5xl lg:text-6xl">
         {figure(sim.price)}
         <span className="ml-2 text-base font-medium text-white/40 lg:text-lg">{currency}</span>
       </div>
       <p className="mt-2 text-xs leading-snug text-white/40">
-        The most expensive property this plan carries without the fund dropping below {money(buffer)}.
+        {kind === "developer-cash"
+          ? `The highest installment price this deal carries — you pay ${money(sim.upFront)} in cash — without the fund dropping below ${money(buffer)}.`
+          : kind === "resale"
+            ? `The most cash to the seller this deal carries, on top of the ${money(sim.totalInstallments)} still owed to the developer, without the fund dropping below ${money(buffer)}.`
+            : `The most expensive property this plan carries without the fund dropping below ${money(buffer)}.`}
       </p>
 
       {/* What it costs, what is left, and where the money ended up. All in {currency}. */}
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        <Stat label="Down payment" value={figure(sim.downPayment)} />
+        <Stat label={kind === "developer-plan" ? "Down payment" : "Paid up front"} value={figure(sim.downPayment)} />
         <Stat label="Total installments" value={figure(sim.totalInstallments)} />
         <Stat label="Extra costs" value={figure(sim.totalExtraCosts)} />
-        <Stat label="Final balance" value={figure(sim.finalBalance)} sub={`end of year ${sim.years.length}`} />
+        <Stat label="Final balance" value={figure(sim.finalBalance)} sub={`end of year ${sim.horizonYears}`} />
         <Stat
           label="Paid into the property"
           value={figure(sim.paidIntoProperty)}
@@ -499,11 +552,13 @@ function Verdict({
   capital,
   buffer,
   currency,
+  label,
 }: {
   sim: SimulationResult;
   capital: number;
   buffer: number;
   currency: string;
+  label?: string;
 }) {
   const money = (n: number) => formatMoney(n, currency);
 
@@ -512,7 +567,9 @@ function Verdict({
       <div role="status" className="mt-3 flex gap-2.5 rounded-lg border border-gain/30 bg-gain/10 px-3 py-2.5 text-sm">
         <VerdictIcon ok />
         <div className="min-w-0">
-          <div className="font-semibold text-gain">Affordable</div>
+          <div className="font-semibold text-gain">
+            {label && <span className="text-white/60">{label}: </span>}Affordable
+          </div>
           <p className="mt-0.5 text-xs leading-snug text-white/70">
             {money(sim.price)} keeps the fund above the buffer all the way. Lowest balance {money(sim.minBalance)};
             ends with {money(sim.finalBalance)} ({formatPct(sim.keptShareOfCapital, 0)} of your capital kept).
@@ -527,11 +584,17 @@ function Verdict({
     <div role="status" className="mt-3 flex gap-2.5 rounded-lg border border-loss/30 bg-loss/10 px-3 py-2.5 text-sm">
       <VerdictIcon ok={false} />
       <div className="min-w-0">
-        <div className="font-semibold text-loss">Not affordable</div>
+        <div className="font-semibold text-loss">
+          {label && <span className="text-white/60">{label}: </span>}Not affordable
+        </div>
         <p className="mt-0.5 text-xs leading-snug text-white/70">
           {breach
             ? breach.month === 0
-              ? `The down payment alone (${money(sim.downPayment)}) leaves the fund ${money(breach.shortfall)} short of the buffer.`
+              ? sim.loan && sim.loan.pledge > 0
+                ? `The bank's guarantee plus your share of the up-front payment (${money(
+                    sim.upFrontFromFund + sim.loan.pledge,
+                  )}) leaves the fund ${money(breach.shortfall)} short of the ${money(buffer)} buffer.`
+                : `Paying ${money(sim.upFront)} up front leaves the fund ${money(breach.shortfall)} short of the buffer.`
               : `Money runs out in month ${breach.month} (year ${Math.ceil(breach.month / 12)}): the balance falls ${money(
                   breach.shortfall,
                 )} short of the ${money(buffer)} buffer.`

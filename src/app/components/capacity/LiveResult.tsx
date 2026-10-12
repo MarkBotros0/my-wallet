@@ -3,7 +3,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import type { SimulationResult } from "@/lib/capacity";
 import type { FormError, FormField } from "@/app/lib/capacityForm";
-import { formatMoney, formatPct } from "@/app/lib/format";
+import { formatCompact, formatMoney, formatPct } from "@/app/lib/format";
 
 /** Scroll the results column's top under the nav; the id carries the scroll margin. */
 function scrollToResults() {
@@ -138,9 +138,12 @@ export default function LiveResult({
   errors,
   onFix,
   onShowResults,
+  loanDifference,
 }: {
   /** The maximum, null when nothing is affordable, undefined when there is no result yet. */
   maxPrice: number | null | undefined;
+  /** With-loan maximum minus without-loan maximum; null/undefined when no loan is on. */
+  loanDifference?: number | null;
   currency: string;
   errors: FormError[];
   onFix: (field: FormField) => void;
@@ -191,6 +194,12 @@ export default function LiveResult({
               >
                 {maxPrice === undefined ? "—" : maxPrice === null ? "Nothing affordable" : formatMoney(maxPrice, currency)}
               </span>
+              {loanDifference != null && maxPrice != null && Math.abs(loanDifference) >= 1_000 && (
+                <span className="block text-[11px] text-white/50">
+                  {loanDifference > 0 ? "+" : "−"}
+                  {formatCompact(Math.abs(loanDifference), 2)} with the loan
+                </span>
+              )}
             </span>
             <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-accent">
               Results
