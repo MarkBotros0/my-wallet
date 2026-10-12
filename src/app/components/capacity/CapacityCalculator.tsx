@@ -268,99 +268,104 @@ export default function CapacityCalculator() {
               <ResultTabs value={tab} onChange={setTab} />
             </div>
 
-            <div {...tabPanelProps(tab)} className={`mt-4 space-y-4 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
-              {tab === "answer" && (
-                <>
-                  {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} onFix={reveal} />}
-                  {shown && (
-                    <>
-                      {capacity && capacity.maxPrice === null ? (
-                        <Card className="animate-rise">
-                          <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
-                          <p className="mt-2 text-sm leading-relaxed text-white/60">
-                            {shown.startingCapital < shown.safetyBuffer
-                              ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
-                                  shown.safetyBuffer,
-                                )}), so no property — not even a free one — keeps the fund above it.`
-                              : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
-                            Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
-                          </p>
-                        </Card>
-                      ) : (
-                        capacity?.simulation && (
-                          <Hero
-                            sim={capacity.simulation}
-                            capital={shown.startingCapital}
-                            buffer={shown.safetyBuffer}
-                            currency={currency}
-                          />
-                        )
-                      )}
-                    </>
-                  )}
-                </>
+            <div {...tabPanelProps(tab)} className="mt-4 space-y-4">
+              {tab === "answer" && errors.length > 0 && (
+                <ErrorSummary errors={errors} hasResult={shown !== null} onFix={reveal} />
               )}
-              {tab === "time" && showing && shown && (
-                <Card
-                  title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-                  className="animate-rise"
-                  style={{ animationDelay: "120ms" }}
-                >
-                  <BalanceChart inputs={shown} sim={showing} currency={currency} />
-                </Card>
-              )}
-              {tab === "years" && showing && shown && (
-                <Card
-                  title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-                  className="animate-rise"
-                  style={{ animationDelay: "160ms" }}
-                >
-                  <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
-                </Card>
-              )}
-              {tab === "whatif" && shown && (
-                <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
+              {/* Only the result is dimmed while the form does not parse — the error card must stay legible. */}
+              <div className={`space-y-4 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
+                {tab === "answer" && (
+                  <>
+                    {shown && (
+                      <>
+                        {capacity && capacity.maxPrice === null ? (
+                          <Card className="animate-rise">
+                            <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
+                            <p className="mt-2 text-sm leading-relaxed text-white/60">
+                              {shown.startingCapital < shown.safetyBuffer
+                                ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
+                                    shown.safetyBuffer,
+                                  )}), so no property — not even a free one — keeps the fund above it.`
+                                : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
+                              Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
+                            </p>
+                          </Card>
+                        ) : (
+                          capacity?.simulation && (
+                            <Hero
+                              sim={capacity.simulation}
+                              capital={shown.startingCapital}
+                              buffer={shown.safetyBuffer}
+                              currency={currency}
+                            />
+                          )
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                {tab === "time" && showing && shown && (
                   <Card
-                    title="Test a specific price"
-                    className={`animate-rise`}
-                    style={{ animationDelay: "40ms" }}
+                    title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+                    className="animate-rise"
+                    style={{ animationDelay: "120ms" }}
                   >
-                    <CalcField
-                      field="testPrice"
-                      label="Price to test"
-                      hint="Leave blank to only see the maximum."
-                      group
-                      value={form.testPrice}
-                      onChange={(v) => update({ testPrice: v })}
-                      suffix={currency}
-                      placeholder="e.g. 7,500,000"
-                    />
-                    {tested && (
-                      <div className="mt-3">
-                        <Segmented<"max" | "test">
-                          ariaLabel="Which price the chart and table show"
-                          value={detailsFor === "test" ? "test" : "max"}
-                          onChange={setDetailsFor}
-                          options={[
-                            { value: "max", label: "Show maximum" },
-                            { value: "test", label: "Show tested" },
-                          ]}
-                        />
-                      </div>
-                    )}
-                    {tested && (
-                      <Verdict sim={tested} capital={shown.startingCapital} buffer={shown.safetyBuffer} currency={currency} />
-                    )}
+                    <BalanceChart inputs={shown} sim={showing} currency={currency} />
                   </Card>
-
-
-                  {hasSensitivity && rows && (
-                    <Card title="If the fund's return changes" className="animate-rise" style={{ animationDelay: "80ms" }}>
-                      <SensitivityTable rows={rows} currency={currency} />
+                )}
+                {tab === "years" && showing && shown && (
+                  <Card
+                    title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
+                    className="animate-rise"
+                    style={{ animationDelay: "160ms" }}
+                  >
+                    <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
+                  </Card>
+                )}
+                {tab === "whatif" && shown && (
+                  <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
+                    <Card
+                      title="Test a specific price"
+                      className={`animate-rise`}
+                      style={{ animationDelay: "40ms" }}
+                    >
+                      <CalcField
+                        field="testPrice"
+                        label="Price to test"
+                        hint="Leave blank to only see the maximum."
+                        group
+                        value={form.testPrice}
+                        onChange={(v) => update({ testPrice: v })}
+                        suffix={currency}
+                        placeholder="e.g. 7,500,000"
+                      />
+                      {tested && (
+                        <div className="mt-3">
+                          <Segmented<"max" | "test">
+                            ariaLabel="Which price the chart and table show"
+                            value={detailsFor === "test" ? "test" : "max"}
+                            onChange={setDetailsFor}
+                            options={[
+                              { value: "max", label: "Show maximum" },
+                              { value: "test", label: "Show tested" },
+                            ]}
+                          />
+                        </div>
+                      )}
+                      {tested && (
+                        <Verdict sim={tested} capital={shown.startingCapital} buffer={shown.safetyBuffer} currency={currency} />
+                      )}
                     </Card>
-                  )}
-                </div>
-              )}
+
+
+                    {hasSensitivity && rows && (
+                      <Card title="If the fund's return changes" className="animate-rise" style={{ animationDelay: "80ms" }}>
+                        <SensitivityTable rows={rows} currency={currency} />
+                      </Card>
+                    )}
+                  </div>
+                )}
+              </div>
               {!shown && tab !== "answer" && (
                 <p className="text-sm text-white/50">Fix the inputs to see this.</p>
               )}
