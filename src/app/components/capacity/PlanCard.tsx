@@ -5,9 +5,8 @@ import type { PlanAnswer } from "@/app/lib/planAnswer";
 
 /**
  * One plan as a card: its name, its terms in one line, and its answer, live.
- * In step ② it carries Edit / Duplicate / Delete and opens its editor inline
- * beneath (`children`); in step ③ it is read-only and the whole card is a
- * button that selects the plan.
+ * It carries Edit / Duplicate / Delete and opens its editor inline beneath
+ * (`children`). Step ③ lists plans with `PlanRanking` instead.
  */
 export default function PlanCard({
   id,
@@ -15,12 +14,10 @@ export default function PlanCard({
   terms,
   answer,
   best = false,
-  selected = false,
   editing = false,
   onEdit,
   onDuplicate,
   onDelete,
-  onSelect,
   children,
 }: {
   /** The plan's id — names the inline editor's element for aria-controls. */
@@ -29,14 +26,11 @@ export default function PlanCard({
   terms: string;
   answer: PlanAnswer;
   best?: boolean;
-  selected?: boolean;
   editing?: boolean;
   onEdit?: () => void;
   onDuplicate?: () => void;
   /** Absent on the last plan — there is always one. */
   onDelete?: () => void;
-  /** Read-only mode: the card selects the plan. */
-  onSelect?: () => void;
   children?: ReactNode;
 }) {
   const editorId = `plan-editor-${id}`;
@@ -69,21 +63,6 @@ export default function PlanCard({
       </div>
     </div>
   );
-
-  if (onSelect) {
-    return (
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={selected}
-        className={`surface pressable block w-full cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
-          selected ? "ring-1 ring-accent/50" : ""
-        }`}
-      >
-        {head}
-      </button>
-    );
-  }
 
   return (
     <article className={`surface overflow-hidden ${editing ? "ring-1 ring-accent/40" : ""}`}>

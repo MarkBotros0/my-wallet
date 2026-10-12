@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { planName, planTerms, type FormField, type Mode, type Step } from "@/app/lib/capacityForm";
+import { planName, type FormField, type Mode, type Step } from "@/app/lib/capacityForm";
 import { useCapacityForm } from "@/app/lib/capacityFormStore";
 import { isBlankPrice, planAnswer, realErrors } from "@/app/lib/planAnswer";
 import { usePlanResults } from "@/app/lib/usePlanResults";
 import { FormErrorsProvider, focusField, useVisibleErrors } from "./formErrors";
 import LiveResult, { DesktopAnswer } from "./LiveResult";
 import MoneyStep from "./MoneyStep";
-import PlanCard from "./PlanCard";
+import CompareStep from "./CompareStep";
 import PlansStep from "./PlansStep";
 import StepBar from "./StepBar";
 import { Segmented } from "../ui";
@@ -43,7 +43,7 @@ function planOf(field: FormField): string | null {
  */
 export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
-  const { parsed, results, best } = usePlanResults(form);
+  const { parsed, results, best, horizon } = usePlanResults(form);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
   const currency = form.money.currency.trim().toUpperCase() || "EGP";
 
@@ -119,7 +119,8 @@ export default function CapacityCalculator() {
 
   return (
     <FormErrorsProvider value={visible}>
-      <div className="mx-auto max-w-3xl px-4 py-6 md:py-8">
+      {/* Step ③ puts the plans beside the detail from lg:, so it takes the width. */}
+      <div className={`mx-auto px-4 py-6 md:py-8 ${form.step === 3 ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"}`}>
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Real Estate</h1>
@@ -195,31 +196,19 @@ export default function CapacityCalculator() {
           )}
 
           {form.step === 3 && (
-            <div className="space-y-3">
-              {form.plans.map((plan) => {
-                const parsedPlan = parsed.plans.find((p) => p.id === plan.id);
-                return (
-                  <PlanCard
-                    key={plan.id}
-                    id={plan.id}
-                    name={planName(plan)}
-                    terms={planTerms(plan)}
-                    answer={planAnswer({
-                      plan,
-                      mode: form.mode,
-                      result: results[plan.id] ?? null,
-                      errors: parsedPlan?.errors ?? [],
-                      moneyBroken,
-                      currency,
-                    })}
-                    best={form.plans.length > 1 && best === plan.id}
-                    selected={plan.id === selected.id}
-                    onSelect={() => update({ selectedPlanId: plan.id })}
-                  />
-                );
-              })}
+            <>
+              <CompareStep
+                form={form}
+                parsed={parsed}
+                results={results}
+                best={best}
+                horizon={horizon}
+                currency={currency}
+                onSelect={(selectedPlanId) => update({ selectedPlanId })}
+                onReveal={reveal}
+              />
               <StepNav back={{ label: "Back to plans", onClick: () => goTo(2) }} />
-            </div>
+            </>
           )}
           </div>
         </div>

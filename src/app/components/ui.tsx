@@ -280,14 +280,3 @@ export function CheckRow({
     </label>
   );
 }
-
-/** A labelled figure — the stat-tile shape used under the hero number. */
-export function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border border-white/5 bg-white/[0.03] p-3">
-      <div className="text-[11px] text-white/40">{label}</div>
-      <div className="mt-0.5 font-mono text-sm tabular-nums text-white">{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-white/40">{sub}</div>}
-    </div>
-  );
-}

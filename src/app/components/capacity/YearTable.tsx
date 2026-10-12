@@ -1,174 +1,186 @@
 "use client";
 
-import type { YearSummary } from "@/lib/capacity";
-import { formatMoney } from "@/app/lib/format";
-import { yearStory } from "@/app/lib/yearStory";
+import { Fragment, useState, type ReactNode } from "react";
+import type { PurchaseKind, SavingsVehicle, YearSummary } from "@/lib/capacity";
+import { formatMoney, formatSignedMoney } from "@/app/lib/format";
+import { flowGroups, type FlowGroup, type FlowGroupId } from "@/app/lib/moneyFlow";
+import { FLOW_TONE, signTone } from "./MoneyFlowList";
+
+type Ctx = { vehicle: SavingsVehicle; kind: PurchaseKind; hasLoan: boolean };
+
+/** The table's column heads: the groups' titles, shortened to fit a column. */
+const SHORT: Record<FlowGroupId, string> = {
+  savings: "Savings",
+  added: "Added",
+  developer: "Developer",
+  bank: "Bank",
+  costs: "Costs",
+};
+const ORDER: FlowGroupId[] = ["savings", "added", "developer", "bank", "costs"];
 
 /**
- * Year by year, as a story the reader can follow top to bottom: where the
- * fund opened, what was paid out of it (the down payment on year 1, the
- * installments, any extra cost), what covered that (the fund's returns, the
- * income added, and the rest out of savings — or, in a good year, what was
- * left in them), and where it closed. On a phone each year is one card in
- * that order; on a desktop the table lays the same ledger across one row,
- * where opening and closing sit side by side and the savings line is not
- * needed.
+ * Year by year, under the same headings as "Where the money goes": each year
+ * opens, every stream moves it by its own subtotal (savings, what you add,
+ * developer, bank, costs — never netted into one another), and it closes.
  *
- * Colour follows the money rule: money out (down payment, installments,
- * extra costs) is `loss`, money in (returns, income) is `gain`. Opening,
- * closing, lowest and the savings row are positions, not flows, and stay
- * neutral. A year whose lowest balance dipped under the buffer is tinted
- * `loss` — a real bad outcome, so it earns the colour.
+ *   opening + Σ group subtotals = closing
+ *
+ * On a phone each year is one card read top to bottom, every group with its
+ * rows and subtotal. On a desktop each year is one table row of subtotals,
+ * and a button on the row opens its line items.
+ *
+ * Colour follows the money rule: rows are `gain` in, `loss` out, the
+ * guarantee locked or returned neutral; a subtotal is coloured by its sign.
+ * Opening, closing and lowest are positions and stay neutral. A year whose
+ * lowest balance dipped under the buffer is tinted `loss` — a real bad
+ * outcome — and says so in words.
  */
 export default function YearTable({
   years,
+  ctx,
   buffer,
   currency,
 }: {
   years: YearSummary[];
+  ctx: Ctx;
   buffer: number;
   currency: string;
 }) {
+  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
+  const toggle = (year: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) next.delete(year);
+      else next.add(year);
+      return next;
+    });
+
+  const rows = years.map((y) => ({ y, groups: flowGroups(y, ctx) }));
+  const columns = ORDER.filter((id) => rows.some((r) => r.groups.some((g) => g.id === id)));
+  const titleOf = (id: FlowGroupId) => {
+    if (id === "developer" && ctx.kind === "resale") return "Seller";
+    return SHORT[id];
+  };
   const money = (n: number) => formatMoney(n, "");
-  const dash = <span className="text-white/30">—</span>;
-  const inflow = (n: number) => (n === 0 ? dash : <span className="text-gain/80">+{money(n)}</span>);
-  const outflow = (n: number) => (n === 0 ? dash : <span className="text-loss/80">−{money(n)}</span>);
-  const hasLoan = years.some((y) => y.bankInstallments > 0 || y.pledged > 0);
-  const lowestCell = (y: YearSummary) => (
-    <span className={y.breached ? "font-semibold text-loss" : ""}>{money(y.lowest)}</span>
-  );
+  const signed = (n: number) => formatSignedMoney(n, "");
+  const dash = <span className="text-white/25">—</span>;
 
   return (
     <>
-      <p className="mb-3 text-[11px] text-white/40">
-        All figures in {currency}. Lowest is the lowest end-of-month balance in that year — year 1 includes the
-        balance right after the down payment; the buffer is {formatMoney(buffer, currency)}.
-        {hasLoan &&
-          " Locked is the pledge the bank holds — not spendable, so the buffer does not count it; Closing is the spendable fund."}
+      <p className="mb-3 text-[11px] leading-snug text-white/40">
+        All figures in {currency}. Each year opens where the last one closed; every heading adds or takes its own
+        part. Lowest is the lowest balance at the end of any month that year (year 1 includes the moment right after
+        paying now) — it must stay above {formatMoney(buffer, currency)}.
+        {ctx.hasLoan && " Money locked as the bank's guarantee is not spendable, so it is taken out until it comes back."}
       </p>
 
-      {/* Mobile: one card per year, read top to bottom */}
-      <div className="space-y-2 md:hidden">
-        {years.map((y) => {
-          const { paid, fromSavings } = yearStory(y);
-          const bankFlows = y.pledged + y.released;
-          return (
-            <div
-              key={y.year}
-              className={`rounded-xl border p-3 ${
-                y.breached ? "border-loss/30 bg-loss/10" : "border-white/10 bg-white/[0.03]"
-              }`}
-            >
-              <div className="flex items-baseline justify-between">
-                <span className="text-sm font-semibold text-white">Year {y.year}</span>
-                {y.breached && <span className="text-[11px] font-medium text-loss">Below buffer</span>}
-              </div>
-              <dl className="mt-2 flex flex-col gap-1 text-xs">
-                <Row label="Opening" value={money(y.opening)} tone="strong" />
-
-                <Row
-                  label="Paid this year"
-                  value={paid === 0 ? dash : <span className="text-loss">−{money(paid)}</span>}
-                  tone="strong"
-                  className="mt-1.5"
+      {/* Phone: one card per year, read top to bottom */}
+      <ol className="space-y-2 md:hidden">
+        {rows.map(({ y, groups }) => (
+          <li
+            key={y.year}
+            className={`rounded-xl border p-3 ${y.breached ? "border-loss/30 bg-loss/10" : "border-white/10 bg-white/[0.03]"}`}
+          >
+            <div className="flex items-baseline justify-between">
+              <h4 className="text-sm font-semibold text-white">Year {y.year}</h4>
+              {y.breached && <span className="text-[11px] font-medium text-loss">Below your minimum</span>}
+            </div>
+            <div className="mt-2 text-xs">
+              <dl>
+                <Line label="Opening" value={money(y.opening)} strong />
+              </dl>
+              {groups.map((g) => (
+                <GroupLines key={g.id} group={g} />
+              ))}
+              <dl className="mt-2 border-t border-white/10 pt-2">
+                <Line label="Closing" value={money(y.closing)} strong />
+                <Line
+                  label="Lowest in the year"
+                  value={<span className={y.breached ? "font-semibold text-loss" : "text-white/60"}>{money(y.lowest)}</span>}
                 />
-                {y.downPayment > 0 && <Row label={hasLoan ? "Up front, from savings" : "Paid up front"} value={outflow(y.downPayment)} />}
-                {y.installments > 0 && <Row label="Installments" value={outflow(y.installments)} />}
-                {y.bankInstallments > 0 && <Row label="Bank installments" value={outflow(y.bankInstallments)} />}
-                {y.extraCosts > 0 && <Row label="Extra costs" value={outflow(y.extraCosts)} />}
-
-                <Row label="Covered by" tone="strong" className="mt-1.5" />
-                {y.returns > 0 && <Row label="Fund returns" value={inflow(y.returns)} />}
-                {y.income > 0 && <Row label="Income" value={inflow(y.income)} />}
-                {y.certificateInterest > 0 && <Row label="Certificate interest" value={inflow(y.certificateInterest)} />}
-                <Row
-                  label={fromSavings >= 0 ? "From savings" : "Left in savings"}
-                  value={money(Math.abs(fromSavings))}
-                />
-
-                {bankFlows > 0 && (
-                  <>
-                    <Row label="Bank guarantee" tone="strong" className="mt-1.5" />
-                    {y.pledged > 0 && <Row label="Locked as guarantee" value={money(y.pledged)} />}
-                    {y.released > 0 && <Row label="Released" value={money(y.released)} />}
-                  </>
-                )}
-
-                <Row
-                  label="Closing"
-                  value={money(y.closing)}
-                  tone="strong"
-                  className="mt-1.5 border-t border-white/10 pt-2"
-                />
-                <Row label="Lowest in the year" value={lowestCell(y)} tone="muted" />
               </dl>
             </div>
-          );
-        })}
-      </div>
+          </li>
+        ))}
+      </ol>
 
-      {/* Desktop: the table */}
+      {/* Desktop: one row of subtotals per year, each opening to its line items */}
       <div className="hidden overflow-x-auto rounded-xl border border-white/10 md:block">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-white/10 text-left uppercase tracking-wide text-white/40">
-              <th className="px-3 py-2.5 font-medium">Year</th>
-              <th className="px-3 py-2.5 text-right font-medium">Opening</th>
-              <th className="px-3 py-2.5 text-right font-medium">{hasLoan ? "From savings" : "Up front"}</th>
-              <th className="px-3 py-2.5 text-right font-medium">Installments</th>
-              <th className="px-3 py-2.5 text-right font-medium">Extra costs</th>
-              <th className="px-3 py-2.5 text-right font-medium">Returns</th>
-              <th className="px-3 py-2.5 text-right font-medium">Income</th>
-              {hasLoan && (
-                <>
-                  <th className="px-3 py-2.5 text-right font-medium">Bank</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Certificates</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Locked</th>
-                </>
-              )}
-              <th className="px-3 py-2.5 text-right font-medium">Closing</th>
-              <th className="px-3 py-2.5 text-right font-medium">Lowest</th>
+              <th scope="col" className="px-2.5 py-2.5 font-medium">Year</th>
+              <th scope="col" className="px-2.5 py-2.5 text-right font-medium">Opening</th>
+              {columns.map((id) => (
+                <th key={id} scope="col" className="px-2.5 py-2.5 text-right font-medium">{titleOf(id)}</th>
+              ))}
+              <th scope="col" className="px-2.5 py-2.5 text-right font-medium">Closing</th>
+              <th scope="col" className="px-2.5 py-2.5 text-right font-medium">Lowest</th>
             </tr>
           </thead>
           <tbody className="font-mono tabular-nums">
-            {years.map((y) => (
-              <tr
-                key={y.year}
-                className={`border-b border-white/5 last:border-0 ${
-                  y.breached ? "bg-loss/10" : "hover:bg-white/[0.02]"
-                }`}
-              >
-                <td className="px-3 py-2 font-sans text-white/70">
-                  {y.year}
-                  {y.breached && <span className="ml-2 text-[10px] font-medium text-loss">below buffer</span>}
-                </td>
-                <td className="px-3 py-2 text-right text-white/80">{money(y.opening)}</td>
-                <td className="px-3 py-2 text-right">{outflow(y.downPayment)}</td>
-                <td className="px-3 py-2 text-right">{outflow(y.installments)}</td>
-                <td className="px-3 py-2 text-right">{outflow(y.extraCosts)}</td>
-                <td className="px-3 py-2 text-right">{inflow(y.returns)}</td>
-                <td className="px-3 py-2 text-right">{inflow(y.income)}</td>
-                {hasLoan && (
-                  <>
-                    <td className="px-3 py-2 text-right">{outflow(y.bankInstallments)}</td>
-                    <td className="px-3 py-2 text-right">{inflow(y.certificateInterest)}</td>
-                    <td className="px-3 py-2 text-right text-white/70">
-                      {y.pledged > 0 && y.released > 0 ? (
-                        `${money(y.pledged)} / −${money(y.released)}`
-                      ) : y.pledged > 0 ? (
-                        money(y.pledged)
-                      ) : y.released > 0 ? (
-                        `−${money(y.released)}`
-                      ) : (
-                        dash
-                      )}
+            {rows.map(({ y, groups }) => {
+              const isOpen = open.has(y.year);
+              const detailId = `year-detail-${y.year}`;
+              const tint = y.breached ? "bg-loss/10" : "";
+              return (
+                <Fragment key={y.year}>
+                  <tr className={`border-b border-white/5 ${tint} ${isOpen ? "" : "last:border-0"}`}>
+                    <th scope="row" className="px-1 py-1 text-left font-sans font-normal">
+                      <button
+                        type="button"
+                        onClick={() => toggle(y.year)}
+                        aria-expanded={isOpen}
+                        aria-controls={isOpen ? detailId : undefined}
+                        aria-label={`Year ${y.year}${y.breached ? ", below your minimum" : ""} — ${isOpen ? "hide" : "show"} the details`}
+                        className="flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-white/80 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          className={`h-3.5 w-3.5 text-white/40 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.75"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <path d="m6 4 4 4-4 4" />
+                        </svg>
+                        {y.year}
+                        {y.breached && <span className="text-[10px] font-medium text-loss">below min</span>}
+                      </button>
+                    </th>
+                    <td className="px-2.5 py-2 text-right text-white/80">{money(y.opening)}</td>
+                    {columns.map((id) => {
+                      const g = groups.find((x) => x.id === id);
+                      return (
+                        <td key={id} className={`px-2.5 py-2 text-right ${g ? signTone(g.subtotal) : ""}`}>
+                          {g ? signed(g.subtotal) : dash}
+                        </td>
+                      );
+                    })}
+                    <td className="px-2.5 py-2 text-right font-semibold text-white">{money(y.closing)}</td>
+                    <td className={`px-2.5 py-2 text-right ${y.breached ? "font-semibold text-loss" : "text-white/70"}`}>
+                      {money(y.lowest)}
                     </td>
-                  </>
-                )}
-                <td className="px-3 py-2 text-right text-white">{money(y.closing)}</td>
-                <td className="px-3 py-2 text-right text-white/80">{lowestCell(y)}</td>
-              </tr>
-            ))}
+                  </tr>
+                  {isOpen && (
+                    <tr id={detailId} className={`border-b border-white/5 last:border-0 ${tint}`}>
+                      <td colSpan={columns.length + 4} className="px-4 pb-3 pt-1">
+                        <div className="grid gap-x-6 gap-y-3 font-sans sm:grid-cols-2 xl:grid-cols-3">
+                          {groups.map((g) => (
+                            <div key={g.id} className="text-xs">
+                              <GroupLines group={g} />
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -176,29 +188,31 @@ export default function YearTable({
   );
 }
 
-/**
- * One line of a year card. `strong` is an anchor of the story (opening, a
- * group's heading, closing); the default is an indented line inside a group;
- * `muted` is the footnote (lowest). A heading with nothing to say on the
- * right keeps an empty `dd`, so the list stays a list of pairs.
- */
-function Row({
-  label,
-  value,
-  tone = "sub",
-  className = "",
-}: {
-  label: string;
-  value?: React.ReactNode;
-  tone?: "strong" | "sub" | "muted";
-  className?: string;
-}) {
-  const dt = tone === "strong" ? "font-medium text-white/70" : "text-white/40";
-  const dd = tone === "strong" ? "font-semibold text-white" : tone === "muted" ? "text-white/50" : "text-white/80";
+/** A group inside a year: its heading and subtotal, then its signed rows. */
+function GroupLines({ group }: { group: FlowGroup }) {
   return (
-    <div className={`flex items-baseline justify-between gap-2 ${tone === "sub" ? "pl-3" : ""} ${className}`}>
-      <dt className={dt}>{label}</dt>
-      <dd className={`font-mono tabular-nums ${dd}`}>{value}</dd>
+    <dl className="mt-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <dt className="text-[10px] font-semibold uppercase tracking-wider text-white/50">{group.title}</dt>
+        <dd className={`font-mono font-semibold tabular-nums ${signTone(group.subtotal)}`}>
+          {formatSignedMoney(group.subtotal, "")}
+        </dd>
+      </div>
+      {group.rows.map((r) => (
+        <div key={r.key} className="flex items-baseline justify-between gap-2 pl-3">
+          <dt className="text-white/45">{r.label}</dt>
+          <dd className={`font-mono tabular-nums ${FLOW_TONE[r.tone]}`}>{formatSignedMoney(r.amount, "")}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Line({ label, value, strong = false }: { label: string; value: ReactNode; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <dt className={strong ? "font-medium text-white/70" : "text-white/45"}>{label}</dt>
+      <dd className={`font-mono tabular-nums ${strong ? "font-semibold text-white" : ""}`}>{value}</dd>
     </div>
   );
 }

@@ -1,78 +1,114 @@
-import { purchaseOf, type CalculatorInputs, type Comparison, type SimulationResult } from "@/lib/capacity";
-import { loanVerdict } from "@/app/lib/dealText";
+import type { ReactNode } from "react";
+import type { CalculatorInputs, Comparison, SimulationResult, TopUpResult } from "@/lib/capacity";
+import { loanVerdict, loanVerdictTopUp } from "@/app/lib/dealText";
 import { formatMoney } from "@/app/lib/format";
-import { Card } from "../ui";
+import { Sentence } from "./DealSummary";
+
+type Props =
+  | { mode: "max"; inputs: CalculatorInputs; comparison: Comparison; currency: string }
+  | {
+      mode: "topUp";
+      comparison: { horizonYears: number; withLoan: TopUpResult; withoutLoan: TopUpResult };
+      currency: string;
+    };
+
+interface Line {
+  label: string;
+  with: number | null;
+  without: number | null;
+  /** Mark the better side: "higher" or "lower" is better; null = not a contest. */
+  better: "higher" | "lower" | null;
+  /** What a null shows. */
+  none?: string;
+}
 
 /**
- * "Is the loan worth it?" — one verdict line, one line of why, then the
- * same five rows for each side. A comparison is a position, not money
- * moving, so nothing here is green or red; the larger figure carries a small
- * "higher" tag instead.
+ * "Is the loan worth it?" — one verdict line, one line of why, then the same
+ * rows for each side. A comparison is a position, not money moving, so the
+ * table stays neutral; the better figure carries a small word tag instead.
  */
-export default function LoanComparison({
-  inputs,
-  comparison,
-  currency,
-}: {
-  inputs: CalculatorInputs;
-  comparison: Comparison;
-  currency: string;
-}) {
-  const v = loanVerdict(inputs, comparison);
+export default function LoanComparison(props: Props) {
+  const { currency } = props;
   const money = (n: number) => formatMoney(n, currency);
   const figure = (n: number) => formatMoney(n, "");
-  const a = comparison.withLoan;
-  const b = comparison.withoutLoan;
-  const otherLabel = purchaseOf(inputs).kind === "developer-cash" ? "Installments" : "Without loan";
+  const sim = (s: SimulationResult | null | undefined, pick: (s: SimulationResult) => number) => (s ? pick(s) : null);
 
-  const headline =
-    v.kind === "loan-better"
-      ? `The loan lets you afford ${money(v.difference)} more.`
-      : v.kind === "no-loan-better"
-        ? `Without the loan you can afford ${money(-v.difference)} more.`
-        : v.kind === "same"
-          ? "Same either way — the loan only changes when you pay."
-          : "Neither works with these numbers.";
-  const why = [
-    `Interest ${money(v.interest)}`,
-    `your certificates earn back ${money(v.certificateInterest)} while pledged`,
-    ...(v.discountSaved > 0 ? [`the cash discount saves ${money(v.discountSaved)}`] : []),
-  ].join(" · ");
-
-  const sim = (s: SimulationResult | null, pick: (s: SimulationResult) => number) => (s ? pick(s) : null);
-  const rows: { label: string; with: number | null; without: number | null; compare: boolean }[] = [
-    { label: "Max you can afford", with: a.maxPrice, without: b.maxPrice, compare: true },
-    { label: "Lowest balance", with: sim(a.simulation, (s) => s.minBalance), without: sim(b.simulation, (s) => s.minBalance), compare: true },
-    { label: "Ends with", with: sim(a.simulation, (s) => s.finalBalance), without: sim(b.simulation, (s) => s.finalBalance), compare: true },
-    { label: "Interest paid", with: sim(a.simulation, (s) => s.loan?.totalInterest ?? 0), without: b.simulation ? 0 : null, compare: false },
-    { label: "Net cost of the loan", with: sim(a.simulation, (s) => s.loan?.netCost ?? 0), without: null, compare: false },
-  ];
+  let headline: ReactNode;
+  let why: string | null;
+  let lines: Line[];
+  if (props.mode === "max") {
+    const c = props.comparison;
+    const v = loanVerdict(props.inputs, c);
+    headline =
+      v.kind === "loan-better"
+        ? `The loan lets you pay ${money(v.difference)} more.`
+        : v.kind === "no-loan-better"
+          ? `Without the loan you can pay ${money(-v.difference)} more.`
+          : v.kind === "same"
+            ? "About the same either way — the loan changes when you pay, not how much."
+            : "Neither works with these numbers.";
+    why = v.kind === "neither" || c.withLoan.maxPrice === null
+      ? null
+      : `The bank charges ${money(v.interest)} in interest; the guarantee earns ${money(v.certificateInterest)} back while it is locked.`;
+    const a = c.withLoan.simulation;
+    const b = c.withoutLoan.simulation;
+    lines = [
+      { label: "Most you can pay", with: c.withLoan.maxPrice, without: c.withoutLoan.maxPrice, better: "higher", none: "Nothing" },
+      { label: "Lowest balance", with: sim(a, (s) => s.minBalance), without: sim(b, (s) => s.minBalance), better: null },
+      { label: "You end with", with: sim(a, (s) => s.finalBalance), without: sim(b, (s) => s.finalBalance), better: "higher" },
+      { label: "Interest to the bank", with: sim(a, (s) => s.loan?.totalInterest ?? 0), without: b ? 0 : null, better: null },
+      { label: "Interest on the guarantee", with: sim(a, (s) => s.loan?.certificateInterest ?? 0), without: b ? 0 : null, better: null },
+    ];
+  } else {
+    const c = props.comparison;
+    const v = loanVerdictTopUp(c);
+    headline = <Sentence parts={v.headline} currency={currency} />;
+    why = v.kind === "neither" ? null : `The bank charges ${money(v.interest)} in interest; the guarantee earns ${money(v.certificateInterest)} back while it is locked.`;
+    const ok = (r: TopUpResult) => (r.topUp === null ? null : r.simulation);
+    lines = [
+      { label: "Add each year", with: c.withLoan.topUp, without: c.withoutLoan.topUp, better: "lower", none: "Can't work" },
+      { label: "Lowest balance", with: sim(ok(c.withLoan), (s) => s.minBalance), without: sim(ok(c.withoutLoan), (s) => s.minBalance), better: null },
+      { label: "You end with", with: sim(ok(c.withLoan), (s) => s.finalBalance), without: sim(ok(c.withoutLoan), (s) => s.finalBalance), better: "higher" },
+      { label: "Interest to the bank", with: c.withLoan.simulation.loan?.totalInterest ?? 0, without: 0, better: null },
+      { label: "Interest on the guarantee", with: c.withLoan.simulation.loan?.certificateInterest ?? 0, without: 0, better: null },
+    ];
+  }
 
   return (
-    <Card className="animate-rise" style={{ animationDelay: "80ms" }}>
-      <h2 className="text-base font-semibold text-white" aria-live="polite">{headline}</h2>
-      {v.kind !== "neither" && a.maxPrice !== null && <p className="mt-1 text-xs leading-snug text-white/50">{why}.</p>}
+    <div>
+      <p className="text-sm font-semibold leading-snug text-white">{headline}</p>
+      {why && <p className="mt-1 text-xs leading-snug text-white/50">{why}</p>}
 
-      <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 text-xs">
-        <dt className="pb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">Measure</dt>
-        <dd className="pb-1.5 text-right text-[11px] font-medium uppercase tracking-wide text-white/40">With loan</dd>
-        <dd className="pb-1.5 text-right text-[11px] font-medium uppercase tracking-wide text-white/40">{otherLabel}</dd>
-        {rows.map((r) => {
-          const higher = r.compare && r.with !== null && r.without !== null && Math.abs(r.with - r.without) >= 1;
-          const cell = (key: string, n: number | null, tag: boolean) => (
-            <dd key={key} className="border-t border-white/5 py-2 text-right font-mono tabular-nums text-white">
-              {n === null ? <span className="text-white/40">{r.label.startsWith("Max") ? "Nothing" : "—"}</span> : figure(n)}
-              {tag && <span className="ml-1.5 rounded bg-white/10 px-1 py-px font-sans text-[10px] text-white/70">higher</span>}
-            </dd>
-          );
-          return [
-            <dt key={`${r.label}-l`} className="border-t border-white/5 py-2 text-white/60">{r.label}</dt>,
-            cell(`${r.label}-a`, r.with, higher && r.with! > r.without!),
-            cell(`${r.label}-b`, r.without, higher && r.without! > r.with!),
-          ];
-        })}
-      </dl>
-      <p className="mt-2 text-[11px] text-white/40">All figures in {currency}, over {comparison.horizonYears} years.</p>
-    </Card>
+      <table className="mt-3 w-full text-xs">
+        <thead>
+          <tr className="text-[11px] uppercase tracking-wide text-white/40">
+            <th scope="col" className="pb-1.5 text-left font-medium"><span className="sr-only">Measure</span></th>
+            <th scope="col" className="pb-1.5 pl-2 text-right font-medium">With the loan</th>
+            <th scope="col" className="pb-1.5 pl-2 text-right font-medium">Without the loan</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono tabular-nums">
+          {lines.map((r) => {
+            const contest = r.better !== null && r.with !== null && r.without !== null && Math.abs(r.with - r.without) >= 1;
+            const wins = (mine: number | null, theirs: number | null) =>
+              contest && mine !== null && theirs !== null && (r.better === "higher" ? mine > theirs : mine < theirs);
+            const cell = (n: number | null, tag: boolean) => (
+              <td className="border-t border-white/5 py-2 pl-2 text-right text-white">
+                {n === null ? <span className="font-sans text-white/40">{r.none ?? "—"}</span> : figure(n)}
+                {tag && <span className="ml-1.5 rounded bg-white/10 px-1 py-px font-sans text-[10px] text-white/70">better</span>}
+              </td>
+            );
+            return (
+              <tr key={r.label}>
+                <th scope="row" className="border-t border-white/5 py-2 text-left font-sans font-normal text-white/60">{r.label}</th>
+                {cell(r.with, wins(r.with, r.without))}
+                {cell(r.without, wins(r.without, r.with))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-[11px] text-white/40">All figures in {currency}, over {props.comparison.horizonYears} years.</p>
+    </div>
   );
 }
