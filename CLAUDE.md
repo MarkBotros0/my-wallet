@@ -16,7 +16,8 @@ is EGX Analytics' (`D:\Projects\egx-api`), the admin role is not.
 ledger*); the **Clients** tab tracks what each client paid this year and
 income carries a **God's share** that is settled from `/gods-share` (see
 *Clients & God's share*); the **Real Estate** tab holds the installment
-buying-capacity calculator (see *Real Estate — buying capacity*). **Home** is
+buying-capacity calculator — three ways of buying, optionally against a bank
+loan on pledged certificates (see *Real Estate — buying capacity*). **Home** is
 the earnings dashboard (see *Home — earnings and God's share*). Design
 records live in `docs/superpowers/specs/`.
 
@@ -462,7 +463,7 @@ given, not money lost, so Home no longer has a number that can go negative
 
 ## Real Estate — buying capacity
 
-The one feature so far. It weighs three ways of buying (developer
+The calculator. It weighs three ways of buying (developer
 installments, developer cash, resale) and, for any of them, a bank loan against
 pledged certificates. Spec: the user's savings sit in a fund; they buy an
 off-plan property on installments, keep the unpaid balance invested, and pay
@@ -513,8 +514,9 @@ directly with the plan's.
   defaults a saved form to developer installments, loan off.
 - **Words, not just numbers:** `app/lib/dealText.ts::describeDeal` and
   `loanVerdict` are pure and tested; the "Your deal" card and the verdict
-  line render them. Rate fields prefilled as examples are labelled "Example —
-  enter your bank's offer" until edited, so a default is never read as a quote.
+  line render them. The loan card carries one notice, "The rates below are examples —
+  enter your bank's offer.", while its rates are unedited, so a default is
+  never read as a quote.
 
 ### The page's shape — sections and tabs (2026-10-12)
 
@@ -542,15 +544,18 @@ tests in `src/lib/capacity`) and could run on the server unchanged. Two conventi
 
 Timing rules, all load-bearing and all pinned by tests:
 
-- Month 0: balance = capital − down payment. Each month, in order: growth →
+- Month 0: spendable = capital − the fund's share of the up-front payment
+  (the up-front payment minus the loan) − the pledge, which is held, not
+  spendable. Each month, in order: growth →
   income → payments. Growth is `monthlyRate(effective) × (1 − fee)` and is
   earned on a POSITIVE balance only (no return on money you don't have; the
   model does not borrow).
 - Yearly installments and yearly income land at the END of the year (month 12,
   24, …); quarterly at months 3/6/9/12; monthly every month. Extra costs
   (maintenance, finishing) land at the END of the year they are due.
-- Feasible = down payment ≤ capital AND balance ≥ buffer every month (month 0
-  included) AND final balance ≥ `minKeptShare × capital`.
+- Feasible = the fund's share of the up-front payment + the pledge ≤ capital
+  AND spendable ≥ buffer every month (month 0 included) AND final spendable
+  ≥ `minKeptShare × capital`.
 - `maxFeasiblePrice` is a binary search on a 1,000 grid — feasibility is
   monotonic in price, and a test asserts it. `sensitivity` re-solves at
   −6/−3/0/+3 points, clamped at 0%.
@@ -612,19 +617,19 @@ value across so the number never jumps.
   `scroll-margin-top` for the nav) or to the first bad field.
 - **On a desktop `DesktopResultBar` does the same job** (`hidden lg:block`,
   zero height in flow at the top of the results column): a glass bar that
-  fades in only once the headline block — error summary + hero — has
+  fades in only once the tab strip (`headlineRef`) has
   scrolled under the nav (`useScrolledPast`, an IntersectionObserver whose
   root inset is the measured height of `nav.sticky`, never a restated 61).
   Maximum · ends with · % kept, or the error count with a "Fix" that
   focuses the first bad field; "Summary" scrolls back to `#results`.
-- **From `xl:` the results use the width** (`xl:max-w-7xl`): the headline
-  block full-width above a two-column grid — "Test a specific price"
-  beside "If the fund's return changes" (the test card spans both when
-  nothing is affordable), then the chart and the year table full-width.
-  The DOM order is the phone order; `xl:order-*` places them. Cards arrive
-  with `animate-rise` 40ms apart; the hero figure is 60px at `lg:` and its
-  six tiles are one row at `xl:`, without the currency code (the figure
-  states it once).
+- **From `xl:` the results use the width** (`xl:max-w-7xl`). The tabs
+  replaced the old single-column stack and its `xl:order-*` grid: the test
+  card is now "Check this deal" under What if, beside "If the fund's return
+  changes" at `xl:`. Cards arrive with `animate-rise` 40ms apart; the hero
+  figure is 60px at `lg:` and its six tiles are one row at `xl:`, without
+  the currency code (the figure states it once). When nothing is affordable
+  and no price is being tested, Over time and Year by year say so in one
+  line and point to What if.
 - Money inputs use `NumberInput group`: on blur a parsed value is rewritten
   with thousands separators; `parseNumber` strips them again.
 

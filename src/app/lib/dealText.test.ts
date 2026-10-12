@@ -58,7 +58,7 @@ describe("describeDeal", () => {
       purchase: { kind: "developer-cash", cashDiscount: 0.2, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
     };
     const s = describeDeal(cash, simulate(cash, 5_000_000));
-    expect(text(s[0])).toBe("You pay the developer # today — the cash price — from savings.");
+    expect(text(s[0])).toBe("You pay the developer # today (the cash price), from savings.");
     expect(text(s[s.length - 1])).toBe("Nothing is left to pay after that.");
   });
 

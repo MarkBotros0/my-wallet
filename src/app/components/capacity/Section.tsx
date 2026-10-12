@@ -40,7 +40,12 @@ export default function Section({
           <span className="block text-sm font-semibold text-white">{title}</span>
           {!open && <span className="block truncate text-xs text-white/50">{summary}</span>}
         </span>
-        {hasError && <span className="h-2 w-2 shrink-0 rounded-full bg-loss" aria-label="Has a problem" />}
+        {hasError && (
+          <>
+            <span className="h-2 w-2 shrink-0 rounded-full bg-loss" aria-hidden />
+            <span className="sr-only">Has a problem</span>
+          </>
+        )}
         <svg
           viewBox="0 0 16 16"
           className={`h-4 w-4 shrink-0 text-white/50 transition-transform ${open ? "rotate-180" : ""}`}

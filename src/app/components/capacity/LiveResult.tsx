@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type RefObject } from "react";
-import type { SimulationResult } from "@/lib/capacity";
+import { DEFAULT_STEP, type SimulationResult } from "@/lib/capacity";
 import type { FormError, FormField } from "@/app/lib/capacityForm";
 import { formatCompact, formatMoney, formatPct } from "@/app/lib/format";
 
@@ -194,7 +194,7 @@ export default function LiveResult({
               >
                 {maxPrice === undefined ? "—" : maxPrice === null ? "Nothing affordable" : formatMoney(maxPrice, currency)}
               </span>
-              {loanDifference != null && maxPrice != null && Math.abs(loanDifference) >= 1_000 && (
+              {loanDifference != null && maxPrice != null && Math.abs(loanDifference) > DEFAULT_STEP && (
                 <span className="block text-[11px] text-white/50">
                   {loanDifference > 0 ? "+" : "−"}
                   {formatCompact(Math.abs(loanDifference), 2)} with the loan

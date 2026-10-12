@@ -213,7 +213,8 @@ export default function CapacityCalculator() {
                     <ResaleFields form={form} update={update} currency={currency} />
                   ) : form.purchaseKind === "developer-cash" &&
                     !planOpen &&
-                    !PLAN_FIELDS.some((f) => byField[f] !== undefined) ? (
+                    !PLAN_FIELDS.some((f) => byField[f] !== undefined) &&
+                    !Object.keys(byField).some((f) => f.startsWith("year-")) ? (
                     <PlanSummaryLine form={form} onEdit={() => setPlanOpen(true)} />
                   ) : (
                     <ScheduleEditor form={form} update={update} />
@@ -351,6 +352,13 @@ export default function CapacityCalculator() {
                       </>
                     )}
                   </>
+                )}
+                {(tab === "time" || tab === "years") && shown && !showing && (
+                  <Card className="animate-rise">
+                    <p className="text-sm leading-relaxed text-white/60">
+                      Nothing is affordable with these numbers — check a specific price under What if to see its plan.
+                    </p>
+                  </Card>
                 )}
                 {tab === "time" && showing && shown && (
                   <Card

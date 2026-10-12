@@ -273,4 +273,7 @@ describe("normalizeForm — the new fields", () => {
     expect(f.pledgeRelease).toBe("at-end");
     expect(f.resaleFrequency).toBe("yearly");
   });
+  it("replaces a corrupt plan frequency with the default", () => {
+    expect(normalizeForm({ ...DEFAULT_FORM, frequency: "weekly" }).frequency).toBe("yearly");
+  });
 });

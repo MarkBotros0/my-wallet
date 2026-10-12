@@ -2,6 +2,7 @@
 
 import type { YearSummary } from "@/lib/capacity";
 import { formatMoney } from "@/app/lib/format";
+import { yearStory } from "@/app/lib/yearStory";
 
 /**
  * Year by year, as a story the reader can follow top to bottom: where the
@@ -49,11 +50,8 @@ export default function YearTable({
       {/* Mobile: one card per year, read top to bottom */}
       <div className="space-y-2 md:hidden">
         {years.map((y) => {
-          const paid = y.downPayment + y.installments + y.extraCosts;
-          const bankFlows = y.bankInstallments + y.certificateInterest + y.pledged + y.released;
-          // What returns, income and certificate interest did not cover came
-          // out of savings; locking and releasing the pledge is shown on its own.
-          const fromSavings = paid + y.bankInstallments - y.returns - y.income - y.certificateInterest;
+          const { paid, fromSavings } = yearStory(y);
+          const bankFlows = y.pledged + y.released;
           return (
             <div
               key={y.year}
@@ -74,13 +72,15 @@ export default function YearTable({
                   tone="strong"
                   className="mt-1.5"
                 />
-                {y.downPayment > 0 && <Row label="Paid up front" value={outflow(y.downPayment)} />}
+                {y.downPayment > 0 && <Row label={hasLoan ? "Up front, from savings" : "Paid up front"} value={outflow(y.downPayment)} />}
                 {y.installments > 0 && <Row label="Installments" value={outflow(y.installments)} />}
+                {y.bankInstallments > 0 && <Row label="Bank installments" value={outflow(y.bankInstallments)} />}
                 {y.extraCosts > 0 && <Row label="Extra costs" value={outflow(y.extraCosts)} />}
 
                 <Row label="Covered by" tone="strong" className="mt-1.5" />
                 {y.returns > 0 && <Row label="Fund returns" value={inflow(y.returns)} />}
                 {y.income > 0 && <Row label="Income" value={inflow(y.income)} />}
+                {y.certificateInterest > 0 && <Row label="Certificate interest" value={inflow(y.certificateInterest)} />}
                 <Row
                   label={fromSavings >= 0 ? "From savings" : "Left in savings"}
                   value={money(Math.abs(fromSavings))}
@@ -88,9 +88,7 @@ export default function YearTable({
 
                 {bankFlows > 0 && (
                   <>
-                    <Row label="Bank" tone="strong" className="mt-1.5" />
-                    {y.bankInstallments > 0 && <Row label="Bank installments" value={outflow(y.bankInstallments)} />}
-                    {y.certificateInterest > 0 && <Row label="Certificate interest" value={inflow(y.certificateInterest)} />}
+                    <Row label="Bank guarantee" tone="strong" className="mt-1.5" />
                     {y.pledged > 0 && <Row label="Locked as guarantee" value={money(y.pledged)} />}
                     {y.released > 0 && <Row label="Released" value={money(y.released)} />}
                   </>
@@ -116,7 +114,7 @@ export default function YearTable({
             <tr className="border-b border-white/10 text-left uppercase tracking-wide text-white/40">
               <th className="px-3 py-2.5 font-medium">Year</th>
               <th className="px-3 py-2.5 text-right font-medium">Opening</th>
-              <th className="px-3 py-2.5 text-right font-medium">Up front</th>
+              <th className="px-3 py-2.5 text-right font-medium">{hasLoan ? "From savings" : "Up front"}</th>
               <th className="px-3 py-2.5 text-right font-medium">Installments</th>
               <th className="px-3 py-2.5 text-right font-medium">Extra costs</th>
               <th className="px-3 py-2.5 text-right font-medium">Returns</th>
@@ -155,7 +153,15 @@ export default function YearTable({
                     <td className="px-3 py-2 text-right">{outflow(y.bankInstallments)}</td>
                     <td className="px-3 py-2 text-right">{inflow(y.certificateInterest)}</td>
                     <td className="px-3 py-2 text-right text-white/70">
-                      {y.pledged > 0 ? money(y.pledged) : y.released > 0 ? `−${money(y.released)}` : dash}
+                      {y.pledged > 0 && y.released > 0 ? (
+                        `${money(y.pledged)} / −${money(y.released)}`
+                      ) : y.pledged > 0 ? (
+                        money(y.pledged)
+                      ) : y.released > 0 ? (
+                        `−${money(y.released)}`
+                      ) : (
+                        dash
+                      )}
                     </td>
                   </>
                 )}

@@ -586,7 +586,7 @@ function flowsFor(point: MonthPoint, inputs: CalculatorInputs, sim: SimulationRe
   if (point.month === 0) {
     const flows: Flow[] = [];
     if (sim.upFrontFromFund > 0)
-      flows.push({ label: sim.loan ? "Paid up front" : "Down payment", amount: sim.upFrontFromFund, direction: "out", sign: -1 });
+      flows.push({ label: sim.loan ? "Up front, from savings" : "Down payment", amount: sim.upFrontFromFund, direction: "out", sign: -1 });
     if (sim.loan && sim.loan.pledge > 0)
       flows.push({ label: "Locked as guarantee", amount: sim.loan.pledge, direction: "held", sign: -1 });
     return flows;

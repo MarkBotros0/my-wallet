@@ -35,12 +35,12 @@ export function describeDeal(inputs: CalculatorInputs, sim: SimulationResult): D
 
   const who = purchase.kind === "resale" ? "the seller" : "the developer";
   const what =
-    purchase.kind === "developer-plan" ? " as the down payment" : purchase.kind === "developer-cash" ? " — the cash price" : "";
+    purchase.kind === "developer-plan" ? " as the down payment" : purchase.kind === "developer-cash" ? " (the cash price)" : "";
   const first: DealSentence = [`You pay ${who} `, { amount: sim.upFront, tone: "out" }, ` today${what}`];
   if (loan) {
     first.push(" — ", { amount: loan.amount, tone: "in" }, " from the bank, ", { amount: sim.upFrontFromFund, tone: "out" }, " from savings.");
   } else {
-    first.push(purchase.kind === "developer-cash" ? " — from savings." : ", from savings.");
+    first.push(", from savings.");
   }
   out.push(first);
 

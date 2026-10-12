@@ -44,14 +44,14 @@ export default function LoanComparison({
     { label: "Max you can afford", with: a.maxPrice, without: b.maxPrice, compare: true },
     { label: "Lowest balance", with: sim(a.simulation, (s) => s.minBalance), without: sim(b.simulation, (s) => s.minBalance), compare: true },
     { label: "Ends with", with: sim(a.simulation, (s) => s.finalBalance), without: sim(b.simulation, (s) => s.finalBalance), compare: true },
-    { label: "Interest paid", with: sim(a.simulation, (s) => s.loan?.totalInterest ?? 0), without: 0, compare: false },
+    { label: "Interest paid", with: sim(a.simulation, (s) => s.loan?.totalInterest ?? 0), without: b.simulation ? 0 : null, compare: false },
     { label: "Net cost of the loan", with: sim(a.simulation, (s) => s.loan?.netCost ?? 0), without: null, compare: false },
   ];
 
   return (
     <Card className="animate-rise" style={{ animationDelay: "80ms" }}>
       <h2 className="text-base font-semibold text-white" aria-live="polite">{headline}</h2>
-      {v.kind !== "neither" && <p className="mt-1 text-xs leading-snug text-white/50">{why}.</p>}
+      {v.kind !== "neither" && a.maxPrice !== null && <p className="mt-1 text-xs leading-snug text-white/50">{why}.</p>}
 
       <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 text-xs">
         <dt className="pb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">Measure</dt>

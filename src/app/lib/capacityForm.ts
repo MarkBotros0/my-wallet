@@ -387,6 +387,11 @@ const CHOICES: Partial<Record<keyof CapacityForm, readonly string[]>> = {
   purchaseKind: ["developer-plan", "developer-cash", "resale"],
   pledgeRelease: ["at-end", "gradual"],
   resaleFrequency: ["yearly", "quarterly", "monthly"],
+  frequency: ["yearly", "quarterly", "monthly"],
+  incomeFrequency: ["monthly", "yearly"],
+  scheduleMode: ["equal", "custom"],
+  rateMode: ["effective", "nominal"],
+  compounding: ["1", "4", "12", "365"],
 };
 
 /**
