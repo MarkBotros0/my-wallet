@@ -187,7 +187,7 @@ function trimPct(n: number): string {
 // ---------------------------------------------------------------------------
 
 const num = (raw: string): number => parseNumber(raw) ?? 0;
-const yrs = (n: number) => `${n} ${n === 1 ? "yr" : "years"}`.replace("years", "yrs");
+const yrs = (n: number) => `${n} ${n === 1 ? "yr" : "yrs"}`;
 const grouped = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const FREQ_WORD: Record<PaymentFrequency, string> = { yearly: "yearly", quarterly: "quarterly", monthly: "monthly" };
 
@@ -416,7 +416,8 @@ function parsePlan(p: PlanForm, money: ParsedMoney["base"], mode: Mode): PlanPar
 
   const nowPct = resale ? quiet(p.nowPct, 0) : required("nowPct", p.nowPct, "Payment now");
   const allNow = !resale && nowPct >= 100;
-  const planYears = resale || allNow ? quiet(p.planYears, 1) : required("planYears", p.planYears, "Plan length");
+  // Hidden for a resale and for an all-now plan: never read, never blocks.
+  const planYears = resale ? quiet(p.planYears, 1) : allNow ? 1 : required("planYears", p.planYears, "Plan length");
   const downPayment = nowPct / 100;
 
   const schedule: CalculatorInputs["schedule"] =
@@ -568,9 +569,9 @@ function normalizeV2(src: Record<string, unknown>): CapacityForm {
   const fixed: PlanForm[] = [];
   for (const p of plans) {
     let id = p.id;
-    if (id === "" || seen.has(id)) {
+    if (!/^p\d+$/.test(id) || seen.has(id)) {
       // Pick an id clear of everything kept so far AND everything still to come.
-      id = planId([...fixed, ...plans.filter((q) => q.id !== "" && !seen.has(q.id) && q !== p)]);
+      id = planId([...fixed, ...plans.filter((q) => /^p\d+$/.test(q.id) && !seen.has(q.id) && q !== p)]);
     }
     seen.add(id);
     fixed.push({ ...p, id });
@@ -640,15 +641,16 @@ const V1_CHOICES: Record<string, readonly string[]> = {
 };
 
 function migrateV1(raw: Record<string, unknown>): CapacityForm {
+  // Nothing of v1 in it: not a saved form at all.
+  if (!Object.keys(V1_DEFAULTS).some((k) => k in raw)) return DEFAULT_FORM;
   const v = sanitize(raw, V1_DEFAULTS, V1_CHOICES);
 
   let fundRatePct = v.effectiveRatePct;
   if (v.rateMode === "nominal") {
     const nominal = parseNumber(v.nominalRatePct);
-    fundRatePct =
-      nominal === null
-        ? DEFAULT_MONEY.fundRatePct
-        : (effectiveFromNominal(nominal / 100, Number(v.compounding) as CompoundingFrequency) * 100).toFixed(2);
+    const effective =
+      nominal === null ? NaN : effectiveFromNominal(nominal / 100, Number(v.compounding) as CompoundingFrequency) * 100;
+    fundRatePct = Number.isFinite(effective) ? effective.toFixed(2) : DEFAULT_MONEY.fundRatePct;
   }
 
   const money: MoneyForm = {

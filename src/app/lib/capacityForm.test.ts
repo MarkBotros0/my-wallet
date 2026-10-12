@@ -153,6 +153,14 @@ describe("parseForm — plans", () => {
     expect(parsed.plans[1].inputs!.schedule).toEqual({ downPayment: 1, planYears: 1, mode: "equal", frequency: "yearly" });
   });
 
+  it("never lets a stale hidden planYears block an all-now plan", () => {
+    for (const planYears of ["0", "2.5", "99"]) {
+      const parsed = parseForm(withPlan("p2", { planYears }));
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.plans[1].inputs!.schedule.planYears).toBe(1);
+    }
+  });
+
   it("requires a price in top-up mode and ignores it in max mode", () => {
     expect(parseForm(form({ mode: "max" })).plans[0].price).toBeNull();
     const top = parseForm(form({ mode: "topUp" }));
@@ -304,6 +312,11 @@ describe("normalizeForm — v2", () => {
     expect(normalizeForm({ ...DEFAULT_FORM, mode: "weird" }).mode).toBe("max");
   });
 
+  it("re-assigns ids that are not p<number>", () => {
+    const f = normalizeForm({ ...DEFAULT_FORM, plans: [newPlan("p1"), newPlan("abc")] });
+    expect(f.plans.map((p) => p.id)).toEqual(["p1", "p2"]);
+  });
+
   it("fixes mistyped plan fields", () => {
     const f = normalizeForm({ ...DEFAULT_FORM, plans: [{ ...newPlan("p1"), kind: "lease", frequency: "weekly", yearPcts: [1] }] });
     expect(f.plans[0].kind).toBe("developer");
@@ -420,6 +433,11 @@ describe("normalizeForm — v1 migration", () => {
       loanRatesEdited: true,
     });
     expect(parseForm(f).errors).toEqual([]);
+  });
+
+  it("treats an object with none of the v1 keys as the defaults", () => {
+    expect(normalizeForm({})).toEqual(DEFAULT_FORM);
+    expect(normalizeForm({ foo: 1 })).toEqual(DEFAULT_FORM);
   });
 
   it("falls back per field on a corrupt v1 form", () => {
