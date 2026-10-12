@@ -5,6 +5,7 @@ import {
   type Comparison,
   type PaymentFrequency,
   type SimulationResult,
+  type TopUpResult,
 } from "@/lib/capacity";
 
 /**
@@ -33,10 +34,10 @@ export function describeDeal(inputs: CalculatorInputs, sim: SimulationResult): D
   const terms = inputs.loan;
   const out: DealSentence[] = [];
 
-  const who = purchase.kind === "resale" ? "the seller" : "the developer";
-  const what =
-    purchase.kind === "developer-plan" ? " as the down payment" : purchase.kind === "developer-cash" ? " (the cash price)" : "";
-  const first: DealSentence = [`You pay ${who} `, { amount: sim.upFront, tone: "out" }, ` today${what}`];
+  const first: DealSentence =
+    purchase.kind === "resale"
+      ? ["You pay the seller ", { amount: sim.upFront, tone: "out" }, " today"]
+      : ["You pay the developer ", { amount: sim.upFront, tone: "out" }, ` today (${planNow(inputs)})`];
   if (loan) {
     first.push(" — ", { amount: loan.amount, tone: "in" }, " from the bank, ", { amount: sim.upFrontFromFund, tone: "out" }, " from savings.");
   } else {
@@ -72,10 +73,20 @@ export function describeDeal(inputs: CalculatorInputs, sim: SimulationResult): D
   return out;
 }
 
+const pct = (fraction: number) => `${parseFloat((fraction * 100).toFixed(1))}%`;
+
+/** The parenthesis of a developer plan's first sentence: how much of the price is paid now, after any discount. */
+function planNow(inputs: CalculatorInputs): string {
+  const now = inputs.schedule.downPayment;
+  const { discount } = purchaseOf(inputs);
+  const off = discount > 0 ? ` after ${pct(discount)} off` : "";
+  return now >= 1 ? `the whole price${off}` : `${pct(now)} of the price${off}`;
+}
+
 /** What is owed to the developer after the up-front payment, per payment when it is an even split. */
 function developerClause(inputs: CalculatorInputs, sim: SimulationResult): DealSentence | null {
   const purchase = purchaseOf(inputs);
-  if (purchase.kind === "developer-cash" || sim.totalInstallments <= 0) return null;
+  if (sim.totalInstallments <= 0) return null;
   const s = inputs.schedule;
   const frequency = purchase.kind === "resale" ? purchase.resaleFrequency : s.frequency;
   const n = purchase.kind === "resale" ? purchase.resaleYears : s.planYears;
@@ -97,23 +108,83 @@ export interface LoanVerdict {
   difference: number;
   interest: number;
   certificateInterest: number;
-  /** A cash purchase's discount at the with-loan maximum; 0 otherwise. */
-  discountSaved: number;
 }
 
-export function loanVerdict(inputs: CalculatorInputs, comparison: Comparison, step = DEFAULT_STEP): LoanVerdict {
+export function loanVerdict(_inputs: CalculatorInputs, comparison: Comparison, step = DEFAULT_STEP): LoanVerdict {
   const a = comparison.withLoan.maxPrice;
   const b = comparison.withoutLoan.maxPrice;
   const loan = comparison.withLoan.simulation?.loan ?? null;
-  const purchase = purchaseOf(inputs);
   const why = {
     interest: loan?.totalInterest ?? 0,
     certificateInterest: loan?.certificateInterest ?? 0,
-    discountSaved: purchase.kind === "developer-cash" && a !== null ? a * purchase.cashDiscount : 0,
   };
   if (a === null && b === null) return { kind: "neither", difference: 0, ...why };
   const difference = (a ?? 0) - (b ?? 0);
   // The maxima sit on the solver's grid; one step apart is the same answer.
   const kind = Math.abs(difference) <= step ? "same" : difference > 0 ? "loan-better" : "no-loan-better";
   return { kind, difference, ...why };
+}
+
+/** The top-up a plan needs, in words. `annualIncrease` is the income's yearly raise (0 = flat). */
+export function topUpSentence(
+  result: TopUpResult,
+  _currency: string,
+  incomeFrequency: "monthly" | "yearly",
+  annualIncrease = 0,
+): DealSentence {
+  const { topUp, blocker, simulation } = result;
+  if (topUp === null) {
+    if (blocker === "day-one") {
+      return [
+        "No top-up can fix this: on day one you need ",
+        { amount: simulation.firstBreach?.shortfall ?? 0, tone: "out" },
+        " more savings than you have.",
+      ];
+    }
+    if (blocker === "too-early") {
+      return [`No top-up can fix this: a payment in month ${simulation.firstBreach?.month ?? 0} comes before the first top-up arrives.`];
+    }
+    return ["No top-up can make this work."];
+  }
+  if (topUp <= 0) return ["Your savings and income already carry this plan — no top-up needed."];
+  const s: DealSentence = ["Add ", { amount: topUp, tone: "in" }, " a year on top of your income"];
+  if (incomeFrequency === "monthly") s.push(" (", { amount: topUp / 12, tone: "in" }, "/month)");
+  if (annualIncrease > 0) s.push(", growing with your raise");
+  s.push(".");
+  return s;
+}
+
+export type TopUpVerdictKind = "loan-better" | "no-loan-better" | "same" | "neither";
+
+export interface TopUpVerdict {
+  kind: TopUpVerdictKind;
+  /** Without-loan top-up − with-loan top-up; positive = the loan saves you that much a year. 0 when a side is blocked. */
+  difference: number;
+  interest: number;
+  certificateInterest: number;
+  headline: DealSentence;
+}
+
+/** Whether the loan lowers the yearly top-up, as one headline sentence. */
+export function loanVerdictTopUp(cmp: { withLoan: TopUpResult; withoutLoan: TopUpResult }): TopUpVerdict {
+  const a = cmp.withLoan.topUp;
+  const b = cmp.withoutLoan.topUp;
+  const loan = cmp.withLoan.simulation.loan;
+  const why = { interest: loan?.totalInterest ?? 0, certificateInterest: loan?.certificateInterest ?? 0 };
+  if (a === null && b === null) {
+    return { kind: "neither", difference: 0, ...why, headline: ["No top-up makes this work, with or without the loan."] };
+  }
+  if (b === null) {
+    return { kind: "loan-better", difference: 0, ...why, headline: ["Without the loan no top-up can make this work."] };
+  }
+  if (a === null) {
+    return { kind: "no-loan-better", difference: 0, ...why, headline: ["With the loan no top-up can make this work."] };
+  }
+  const difference = b - a;
+  if (Math.abs(difference) <= 1) {
+    return { kind: "same", difference, ...why, headline: ["The loan does not change the top-up you need."] };
+  }
+  return difference > 0
+    ? { kind: "loan-better", difference, ...why, headline: ["Without the loan you'd add ", { amount: difference, tone: "out" }, " a year more."] }
+    : { kind: "no-loan-better", difference, ...why, headline: ["Without the loan you'd add ", { amount: -difference, tone: "in" }, " a year less."] };
 }
