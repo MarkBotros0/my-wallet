@@ -1,209 +1,194 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FORM, normalizeForm, parseForm, resizeYearPcts, type CapacityForm } from "./capacityForm";
+import {
+  DEFAULT_FORM,
+  DEFAULT_MONEY,
+  MAX_PLANS,
+  equalYearPcts,
+  newPlan,
+  normalizeForm,
+  parseForm,
+  planId,
+  planName,
+  planTerms,
+  resizeYearPcts,
+  type CapacityForm,
+  type MoneyForm,
+  type PlanForm,
+} from "./capacityForm";
 
 const form = (over: Partial<CapacityForm> = {}): CapacityForm => ({ ...DEFAULT_FORM, ...over });
+const withMoney = (m: Partial<MoneyForm>, over: Partial<CapacityForm> = {}) =>
+  form({ money: { ...DEFAULT_MONEY, ...m }, ...over });
+const withPlan = (id: string, p: Partial<PlanForm>, base: CapacityForm = DEFAULT_FORM): CapacityForm => ({
+  ...base,
+  plans: base.plans.map((x) => (x.id === id ? { ...x, ...p } : x)),
+});
 
-describe("parseForm", () => {
-  it("turns the reference scenario's fields into engine inputs", () => {
-    const { inputs, errors } = parseForm(
-      form({
-        startingCapital: "5,000,000",
-        rateMode: "effective",
-        effectiveRatePct: "12",
-        planYears: "8",
-        scheduleMode: "equal",
-        downPaymentPct: "10",
-        frequency: "yearly",
-        incomeAmount: "300000",
-        incomeFrequency: "yearly",
-        incomeIncreasePct: "0",
-        maintenancePct: "8",
-        maintenanceYear: "4",
-        finishingPct: "",
-        safetyBuffer: "500 000",
-        returnFeePct: "",
-        keepPct: "",
-      }),
-    );
-    expect(errors).toEqual([]);
-    expect(inputs).toEqual({
+describe("defaults", () => {
+  it("parse to two valid plans", () => {
+    const parsed = parseForm(DEFAULT_FORM);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.plans.map((p) => p.id)).toEqual(["p1", "p2"]);
+    expect(parsed.plans.every((p) => p.inputs !== null)).toBe(true);
+    const [p1, p2] = parsed.plans;
+    expect(p1.inputs).toMatchObject({
       startingCapital: 5_000_000,
-      effectiveAnnualRate: 0.12,
+      savingsVehicle: "fund",
       schedule: { downPayment: 0.1, planYears: 8, mode: "equal", frequency: "yearly" },
-      income: { amount: 300_000, frequency: "yearly", annualIncrease: 0 },
-      maintenance: { share: 0.08, year: 4 },
-      finishing: { share: 0, year: 1 },
-      safetyBuffer: 500_000,
-      returnFee: 0,
-      minKeptShare: 0,
-      purchase: { kind: "developer-plan", cashDiscount: 0, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+      purchase: { kind: "developer-plan", discount: 0 },
     });
+    expect(p1.inputs!.effectiveAnnualRate).toBeCloseTo(0.2033, 10);
+    expect(p1.inputs).not.toHaveProperty("topUp");
+    expect(p2.inputs!.schedule.downPayment).toBe(1);
+    expect(p2.inputs!.purchase!.discount).toBe(0.25);
   });
 
-  it("converts a nominal rate and compounding into the effective rate the engine uses", () => {
-    const { inputs, errors } = parseForm(form({ rateMode: "nominal", nominalRatePct: "18.51", compounding: "365" }));
-    expect(errors).toEqual([]);
-    expect(inputs!.effectiveAnnualRate).toBeCloseTo(0.2033, 4);
-  });
-
-  it("passes custom year shares through as fractions", () => {
-    const { inputs, errors } = parseForm(
-      form({ planYears: "3", scheduleMode: "custom", downPaymentPct: "10", yearPcts: ["30", "30", "30"] }),
-    );
-    expect(errors).toEqual([]);
-    expect(inputs!.schedule).toEqual({
-      downPayment: 0.1,
-      planYears: 3,
-      mode: "custom",
-      yearShares: [0.3, 0.3, 0.3],
+  it("has the shape the brief fixes", () => {
+    expect(DEFAULT_FORM).toMatchObject({ version: 2, mode: "max", step: 1, selectedPlanId: "p1", examplesEdited: false });
+    expect(DEFAULT_MONEY).toMatchObject({
+      currency: "EGP",
+      startingCapital: "5,000,000",
+      savingsVehicle: "fund",
+      fundRatePct: "20.33",
+      certificateRatePct: "22",
+      incomeFrequency: "monthly",
+    });
+    expect(newPlan("p9")).toMatchObject({
+      kind: "developer",
+      nowPct: "10",
+      planYears: "8",
       frequency: "yearly",
+      scheduleMode: "equal",
+      loanEnabled: false,
+      loanFlatRatePct: "12",
+      loanYears: "5",
+      lendingRatioPct: "100",
+      loanCertificateRatePct: "11",
+      pledgeRelease: "at-end",
+      maintenanceYear: "1",
+      finishingYear: "1",
     });
   });
+});
 
-  it("reports a custom schedule that does not total 100% against the year fields", () => {
-    const { inputs, errors } = parseForm(
-      form({ planYears: "2", scheduleMode: "custom", downPaymentPct: "10", yearPcts: ["50", "50"] }),
+describe("parseForm — money", () => {
+  it("blocks every plan, naming the money field", () => {
+    const parsed = parseForm(withMoney({ startingCapital: "" }));
+    expect(parsed.plans.every((p) => p.inputs === null)).toBe(true);
+    expect(parsed.moneyErrors).toEqual([
+      { field: "money.startingCapital", message: expect.stringMatching(/starting capital.*required/i) },
+    ]);
+    expect(parsed.errors).toEqual(parsed.moneyErrors);
+    expect(parsed.byField["money.startingCapital"]).toMatch(/required/i);
+  });
+
+  it("uses the certificate rate for a certificate and points rate problems at the active field", () => {
+    const ok = parseForm(withMoney({ savingsVehicle: "certificate", certificateRatePct: "22" }));
+    expect(ok.plans[0].inputs).toMatchObject({ savingsVehicle: "certificate", effectiveAnnualRate: 0.22 });
+    expect(parseForm(withMoney({ fundRatePct: "120" })).errors.map((e) => e.field)).toEqual(["money.fundRatePct"]);
+    expect(
+      parseForm(withMoney({ savingsVehicle: "certificate", certificateRatePct: "x" })).errors.map((e) => e.field),
+    ).toEqual(["money.certificateRatePct"]);
+  });
+
+  it("maps engine problems and lists them in page order", () => {
+    const { moneyErrors } = parseForm(
+      withMoney({ safetyBuffer: "-1", keepPct: "120", returnFeePct: "150", incomeIncreasePct: "150" }),
     );
-    expect(inputs).toBeNull();
-    expect(errors.some((e) => e.field === "yearPcts" && /100%/.test(e.message))).toBe(true);
-  });
-
-  it("names the field when a required number is missing or malformed", () => {
-    const { inputs, errors, byField } = parseForm(form({ startingCapital: "", effectiveRatePct: "abc" }));
-    expect(inputs).toBeNull();
-    expect(errors).toEqual([
-      { field: "startingCapital", message: expect.stringMatching(/starting capital.*required/i) },
-      { field: "effectiveRatePct", message: expect.stringMatching(/return rate.*number/i) },
-    ]);
-    expect(byField.startingCapital).toMatch(/required/i);
-    expect(byField.effectiveRatePct).toMatch(/number/i);
-  });
-
-  it("maps the engine's problems onto the form's fields", () => {
-    expect(parseForm(form({ keepPct: "120" })).errors.map((e) => e.field)).toEqual(["keepPct"]);
-    expect(parseForm(form({ incomeIncreasePct: "150" })).errors.map((e) => e.field)).toEqual(["incomeIncreasePct"]);
-    expect(parseForm(form({ maintenancePct: "8", maintenanceYear: "9" })).errors.map((e) => e.field)).toEqual([
-      "maintenanceYear",
+    expect(moneyErrors.map((e) => e.field)).toEqual([
+      "money.returnFeePct",
+      "money.incomeIncreasePct",
+      "money.safetyBuffer",
+      "money.keepPct",
     ]);
   });
 
-  it("points a return-rate problem at the rate field in use, restated for a nominal entry", () => {
-    expect(parseForm(form({ effectiveRatePct: "120" })).errors.map((e) => e.field)).toEqual(["effectiveRatePct"]);
-    // 80% nominal compounded daily is ~122% effective — the user typed 80, so say what it became.
-    const { errors } = parseForm(form({ rateMode: "nominal", nominalRatePct: "80", compounding: "365" }));
-    expect(errors).toEqual([{ field: "nominalRatePct", message: expect.stringMatching(/effective.*122\.\d+%/i) }]);
+  it("flags a bad currency beside its field without blocking", () => {
+    const parsed = parseForm(withMoney({ currency: "E" }));
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.byField["money.currency"]).toMatch(/3-letter/i);
+    expect(parseForm(withMoney({ currency: "egp" })).byField["money.currency"]).toBeUndefined();
   });
 
-  it("lists blocking errors in the order the fields appear on the page", () => {
-    // The engine reports the buffer before the fee on returns; the page shows
-    // the fee first, then the "what must stay in the fund" card, then the plan.
-    const { errors } = parseForm(form({ safetyBuffer: "-1", keepPct: "120", returnFeePct: "150", downPaymentPct: "150" }));
-    expect(errors.map((e) => e.field)).toEqual(["returnFeePct", "safetyBuffer", "keepPct", "downPaymentPct"]);
+  it("reads blank optional money as zero", () => {
+    const i = parseForm(DEFAULT_FORM).plans[0].inputs!;
+    expect(i.income.amount).toBe(0);
+    expect(i.safetyBuffer).toBe(0);
+    expect(i.returnFee).toBe(0);
+    expect(i.minKeptShare).toBe(0);
+    expect(parseForm(withMoney({ keepPct: "30" })).plans[0].inputs!.minKeptShare).toBeCloseTo(0.3, 12);
+  });
+});
+
+describe("parseForm — plans", () => {
+  it("carries a plan error on plan.<id>.<key>", () => {
+    const parsed = parseForm(withPlan("p2", { nowPct: "150" }));
+    expect(parsed.plans[0].inputs).not.toBeNull();
+    expect(parsed.plans[1].inputs).toBeNull();
+    expect(parsed.errors.map((e) => e.field)).toEqual(["plan.p2.nowPct"]);
+    expect(parsed.plans[1].errors).toEqual(parsed.errors);
   });
 
-  it("treats a blank custom year share as 0 and points a malformed one at that year", () => {
-    const blank = parseForm(form({ planYears: "2", scheduleMode: "custom", downPaymentPct: "50", yearPcts: ["50", ""] }));
+  it("maps the discount and loan certificate problems", () => {
+    expect(parseForm(withPlan("p1", { discountPct: "100" })).errors.map((e) => e.field)).toEqual(["plan.p1.discountPct"]);
+    expect(
+      parseForm(withPlan("p1", { loanEnabled: true, loanCertificateRatePct: "150" })).errors.map((e) => e.field),
+    ).toEqual(["plan.p1.loanCertificateRatePct"]);
+  });
+
+  it("points custom-year problems at plan.<id>.year-N and the set at yearPcts", () => {
+    const base = withPlan("p1", { planYears: "2", scheduleMode: "custom", nowPct: "50", yearPcts: ["50", "x"] });
+    const junk = parseForm(base);
+    expect(junk.byField["plan.p1.year-1"]).toMatch(/number/i);
+    const blank = parseForm(withPlan("p1", { planYears: "2", scheduleMode: "custom", nowPct: "50", yearPcts: ["50", ""] }));
     expect(blank.errors).toEqual([]);
-    expect(blank.inputs!.schedule.yearShares).toEqual([0.5, 0]);
-
-    const junk = parseForm(form({ planYears: "2", scheduleMode: "custom", downPaymentPct: "50", yearPcts: ["50", "x"] }));
-    expect(junk.inputs).toBeNull();
-    expect(junk.byField["year-1"]).toMatch(/number/i);
+    expect(blank.plans[0].inputs!.schedule.yearShares).toEqual([0.5, 0]);
+    const off = parseForm(withPlan("p1", { planYears: "2", scheduleMode: "custom", nowPct: "10", yearPcts: ["50", "30"] }));
+    expect(off.errors.some((e) => e.field === "plan.p1.yearPcts" && /100%/.test(e.message))).toBe(true);
   });
 
-  it("takes a cost's due year as typed: blank means year 1, 0 is outside the plan", () => {
-    expect(parseForm(form({ maintenancePct: "8", maintenanceYear: "" })).inputs!.maintenance.year).toBe(1);
-    expect(parseForm(form({ maintenancePct: "8", maintenanceYear: "0" })).errors.map((e) => e.field)).toEqual([
-      "maintenanceYear",
+  it("lets 100% now ignore a bad planYears and a custom mode", () => {
+    const parsed = parseForm(withPlan("p2", { planYears: "abc", scheduleMode: "custom", yearPcts: ["x"] }));
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.plans[1].inputs!.schedule).toEqual({ downPayment: 1, planYears: 1, mode: "equal", frequency: "yearly" });
+  });
+
+  it("requires a price in top-up mode and ignores it in max mode", () => {
+    expect(parseForm(form({ mode: "max" })).plans[0].price).toBeNull();
+    const top = parseForm(form({ mode: "topUp" }));
+    expect(top.errors).toEqual([
+      { field: "plan.p1.price", message: "Enter the price to check." },
+      { field: "plan.p2.price", message: "Enter the price to check." },
     ]);
+    const ok = parseForm(withPlan("p1", { price: "7,500,000" }, withPlan("p2", { price: "6M" }, form({ mode: "topUp" }))));
+    expect(ok.plans[0].price).toBe(7_500_000);
+    expect(ok.errors.map((e) => e.field)).toEqual(["plan.p2.price"]);
   });
 
-  it("flags a bad currency code beside its field without blocking the result", () => {
-    const { inputs, errors, byField } = parseForm(form({ currency: "E" }));
-    expect(inputs).not.toBeNull();
-    expect(errors).toEqual([]);
-    expect(byField.currency).toMatch(/3-letter/i);
-    expect(parseForm(form({ currency: "" })).byField.currency).toBeUndefined();
-    expect(parseForm(form({ currency: "egp" })).byField.currency).toBeUndefined();
-  });
-
-  it("treats blank optional fields as zero", () => {
-    const { inputs, errors } = parseForm(
-      form({ incomeAmount: "", incomeIncreasePct: "", maintenancePct: "", finishingPct: "", safetyBuffer: "", returnFeePct: "" }),
-    );
-    expect(errors).toEqual([]);
-    expect(inputs!.income.amount).toBe(0);
-    expect(inputs!.safetyBuffer).toBe(0);
-    expect(inputs!.returnFee).toBe(0);
-  });
-
-  it("converts the keep-at-end percentage into a share of starting capital", () => {
-    expect(parseForm(form({ keepPct: "30" })).inputs!.minKeptShare).toBeCloseTo(0.3, 12);
-    expect(parseForm(form({ keepPct: "" })).inputs!.minKeptShare).toBe(0);
-  });
-
-  it("parses the optional test price, blank meaning none", () => {
-    expect(parseForm(form({ testPrice: "" })).testPrice).toBeNull();
-    expect(parseForm(form({ testPrice: "7,500,000" })).testPrice).toBe(7_500_000);
-  });
-
-  it("flags a bad test price beside its field without blocking the result", () => {
-    const negative = parseForm(form({ testPrice: "-5" }));
-    expect(negative.testPrice).toBeNull();
-    expect(negative.inputs).not.toBeNull();
-    expect(negative.errors).toEqual([]);
-    expect(negative.byField.testPrice).toMatch(/negative/i);
-    expect(parseForm(form({ testPrice: "abc" })).byField.testPrice).toMatch(/number/i);
-  });
-});
-
-describe("resizeYearPcts", () => {
-  it("pads with zeros when the plan grows and truncates when it shrinks", () => {
-    expect(resizeYearPcts(["10", "20"], 4)).toEqual(["10", "20", "0", "0"]);
-    expect(resizeYearPcts(["10", "20", "30"], 2)).toEqual(["10", "20"]);
-  });
-});
-
-describe("normalizeForm", () => {
-  it("fills missing or wrongly-typed fields from the defaults", () => {
-    const restored = normalizeForm({ startingCapital: "1", planYears: 8, bogus: true } as unknown);
-    expect(restored.startingCapital).toBe("1");
-    expect(restored.planYears).toBe(DEFAULT_FORM.planYears);
-    expect(restored).not.toHaveProperty("bogus");
-  });
-
-  it("returns the defaults for anything that is not an object", () => {
-    expect(normalizeForm(null)).toEqual(DEFAULT_FORM);
-    expect(normalizeForm("nope")).toEqual(DEFAULT_FORM);
-  });
-});
-
-describe("parseForm — purchase and loan", () => {
-  it("parses a resale with a loan", () => {
-    const { inputs, errors } = parseForm(
-      form({
-        purchaseKind: "resale",
+  it("parses a resale with a loan and reads the developer fields quietly", () => {
+    const parsed = parseForm(
+      withPlan("p1", {
+        kind: "resale",
         resaleRemaining: "5,000,000",
         resaleYears: "4",
         resaleFrequency: "quarterly",
+        nowPct: "abc",
+        planYears: "",
         loanEnabled: true,
         loanSharePct: "90",
-        loanFlatRatePct: "12",
-        loanYears: "5",
-        lendingRatioPct: "100",
-        certificateRatePct: "11",
         pledgeRelease: "gradual",
       }),
     );
-    expect(errors).toEqual([]);
-    expect(inputs!.purchase).toEqual({
+    expect(parsed.errors).toEqual([]);
+    const i = parsed.plans[0].inputs!;
+    expect(i.purchase).toEqual({
       kind: "resale",
-      cashDiscount: 0,
+      discount: 0,
       resaleRemaining: 5_000_000,
       resaleYears: 4,
       resaleFrequency: "quarterly",
     });
-    expect(inputs!.loan).toEqual({
+    expect(i.loan).toEqual({
       enabled: true,
       share: 0.9,
       flatRate: 0.12,
@@ -214,66 +199,232 @@ describe("parseForm — purchase and loan", () => {
     });
   });
 
-  it("reads a blank cash discount as 0 and a typed one as a fraction", () => {
-    expect(parseForm(form({ purchaseKind: "developer-cash" })).inputs!.purchase!.cashDiscount).toBe(0);
-    expect(parseForm(form({ purchaseKind: "developer-cash", cashDiscountPct: "30" })).inputs!.purchase!.cashDiscount).toBe(0.3);
+  it("ignores loan fields while the loan is off", () => {
+    const parsed = parseForm(withPlan("p1", { loanYears: "", lendingRatioPct: "x" }));
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.plans[0].inputs!.loan).toBeUndefined();
   });
 
-  it("does not let the hidden plan fields block a resale", () => {
-    const { inputs, errors, byField } = parseForm(
-      form({ purchaseKind: "resale", resaleRemaining: "0", resaleYears: "3", planYears: "", downPaymentPct: "abc" }),
+  it("orders a plan's errors by page and money before plans", () => {
+    const parsed = parseForm(
+      withPlan(
+        "p1",
+        { kind: "resale", resaleRemaining: "0", resaleYears: "20", loanEnabled: true, loanSharePct: "150", testPrice: "-3" },
+        DEFAULT_FORM,
+      ),
     );
-    expect(errors).toEqual([]);
-    expect(byField.planYears).toBeUndefined();
-    expect(inputs).not.toBeNull();
+    expect(parsed.errors.map((e) => e.field)).toEqual(["plan.p1.resaleYears", "plan.p1.loanSharePct"]);
+    const both = parseForm(withPlan("p2", { nowPct: "" }, withMoney({ startingCapital: "" })));
+    expect(both.errors.map((e) => e.field)).toEqual(["money.startingCapital", "plan.p2.nowPct"]);
   });
 
-  it("ignores the loan fields while the loan is off", () => {
-    const { inputs, errors } = parseForm(form({ loanEnabled: false, loanYears: "", lendingRatioPct: "x" }));
-    expect(errors).toEqual([]);
-    expect(inputs!.loan).toBeUndefined();
-  });
-
-  it("puts loan problems on the loan's fields", () => {
-    // A blank field is caught before the engine runs (existing behaviour), so
-    // only it is reported; once every field is a number the engine speaks.
-    const { errors } = parseForm(form({ loanEnabled: true, loanYears: "" }));
-    expect(errors.map((e) => e.field)).toEqual(["loanYears"]);
-    const second = parseForm(form({ loanEnabled: true, lendingRatioPct: "0" }));
-    expect(second.errors.map((e) => e.field)).toEqual(["lendingRatioPct"]);
-  });
-
-  it("lists purchase fields before the capital and loan fields after the plan", () => {
-    const { errors } = parseForm(
-      form({
-        purchaseKind: "resale",
-        resaleRemaining: "0",
-        resaleYears: "20",
-        startingCapital: "-1",
-        loanEnabled: true,
-        loanSharePct: "150",
-      }),
-    );
-    expect(errors.map((e) => e.field)).toEqual(["resaleYears", "startingCapital", "loanSharePct"]);
+  it("keeps the test price soft", () => {
+    const base = withPlan("p1", { testPrice: "7,500,000" });
+    expect(parseForm(base).plans[0].testPrice).toBe(7_500_000);
+    const bad = parseForm(withPlan("p1", { testPrice: "abc" }));
+    expect(bad.errors).toEqual([]);
+    expect(bad.plans[0].inputs).not.toBeNull();
+    expect(bad.plans[0].testPrice).toBeNull();
+    expect(bad.byField["plan.p1.testPrice"]).toMatch(/number/i);
+    expect(parseForm(withPlan("p1", { testPrice: "-5" })).byField["plan.p1.testPrice"]).toMatch(/negative/i);
   });
 });
 
-describe("normalizeForm — the new fields", () => {
-  it("opens a saved pre-loan form on developer installments with the loan off", () => {
-    const old = { ...DEFAULT_FORM } as Record<string, unknown>;
-    for (const k of ["purchaseKind", "loanEnabled", "pledgeRelease", "loanRatesEdited", "resaleYears"]) delete old[k];
-    const f = normalizeForm(old);
-    expect(f.purchaseKind).toBe("developer-plan");
-    expect(f.loanEnabled).toBe(false);
-    expect(f.pledgeRelease).toBe("at-end");
+describe("year helpers", () => {
+  it("resizes and splits", () => {
+    expect(resizeYearPcts(["10", "20"], 4)).toEqual(["10", "20", "0", "0"]);
+    expect(resizeYearPcts(["10", "20", "30"], 2)).toEqual(["10", "20"]);
+    expect(equalYearPcts(10, 3)).toEqual(["30", "30", "30"]);
   });
-  it("replaces an unknown kind, release or frequency with the default", () => {
-    const f = normalizeForm({ ...DEFAULT_FORM, purchaseKind: "lease", pledgeRelease: "never", resaleFrequency: "daily" });
-    expect(f.purchaseKind).toBe("developer-plan");
-    expect(f.pledgeRelease).toBe("at-end");
-    expect(f.resaleFrequency).toBe("yearly");
+});
+
+describe("planId / planName / planTerms", () => {
+  it("numbers the next plan after the highest", () => {
+    expect(planId([])).toBe("p1");
+    expect(planId(DEFAULT_FORM.plans)).toBe("p3");
+    expect(planId([newPlan("p1"), newPlan("p7")])).toBe("p8");
   });
-  it("replaces a corrupt plan frequency with the default", () => {
-    expect(normalizeForm({ ...DEFAULT_FORM, frequency: "weekly" }).frequency).toBe("yearly");
+
+  it("names plans automatically unless named", () => {
+    const base = newPlan("x");
+    expect(planName(base)).toBe("10% now · 8 yrs");
+    expect(planName({ ...base, nowPct: "100", discountPct: "25" })).toBe("All now · 25% off");
+    expect(planName({ ...base, nowPct: "30", discountPct: "10", planYears: "6" })).toBe("30% now, 10% off · 6 yrs");
+    expect(planName({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleYears: "4" })).toBe("Resale · 5M over 4 yrs");
+    expect(planName({ ...base, loanEnabled: true })).toBe("10% now · 8 yrs + loan");
+    expect(planName({ ...base, name: "  Villa  " })).toBe("Villa");
+    expect(planName({ ...base, planYears: "1" })).toBe("10% now · 1 yr");
+  });
+
+  it("describes the terms in one line", () => {
+    const base = newPlan("x");
+    expect(planTerms(base)).toBe("10% now, the rest yearly over 8 years");
+    expect(planTerms({ ...base, nowPct: "100", discountPct: "25" })).toBe("All now, 25% off");
+    expect(planTerms({ ...base, kind: "resale", resaleRemaining: "5,000,000", resaleYears: "4" })).toBe(
+      "Pay the seller now, 5,000,000 to the developer over 4 years",
+    );
+  });
+});
+
+describe("normalizeForm — v2", () => {
+  it("round-trips the defaults and returns them for junk", () => {
+    expect(normalizeForm(JSON.parse(JSON.stringify(DEFAULT_FORM)))).toEqual(DEFAULT_FORM);
+    expect(normalizeForm(null)).toEqual(DEFAULT_FORM);
+    expect(normalizeForm("nope")).toEqual(DEFAULT_FORM);
+    expect(normalizeForm({ version: 3 })).toEqual(DEFAULT_FORM);
+  });
+
+  it("keeps good values, defaults bad ones and drops unknown keys", () => {
+    const f = normalizeForm({
+      ...DEFAULT_FORM,
+      bogus: 1,
+      money: { ...DEFAULT_MONEY, startingCapital: "1", fundRatePct: 5, savingsVehicle: "gold", extra: true },
+    });
+    expect(f.money.startingCapital).toBe("1");
+    expect(f.money.fundRatePct).toBe(DEFAULT_MONEY.fundRatePct);
+    expect(f.money.savingsVehicle).toBe("fund");
+    expect(f).not.toHaveProperty("bogus");
+    expect(f.money).not.toHaveProperty("extra");
+  });
+
+  it("defaults empty or non-array plans, caps at six, re-ids duplicates", () => {
+    expect(normalizeForm({ ...DEFAULT_FORM, plans: [] }).plans).toEqual(DEFAULT_FORM.plans);
+    expect(normalizeForm({ ...DEFAULT_FORM, plans: "x" }).plans).toEqual(DEFAULT_FORM.plans);
+    const seven = Array.from({ length: 7 }, (_, i) => newPlan(`p${i + 1}`));
+    expect(normalizeForm({ ...DEFAULT_FORM, plans: seven }).plans).toHaveLength(MAX_PLANS);
+    const dup = normalizeForm({ ...DEFAULT_FORM, plans: [newPlan("p1"), newPlan("p1"), newPlan("")] });
+    expect(dup.plans.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("repairs selectedPlanId and step", () => {
+    expect(normalizeForm({ ...DEFAULT_FORM, selectedPlanId: "zzz" }).selectedPlanId).toBe("p1");
+    expect(normalizeForm({ ...DEFAULT_FORM, selectedPlanId: "p2" }).selectedPlanId).toBe("p2");
+    expect(normalizeForm({ ...DEFAULT_FORM, step: 7 }).step).toBe(1);
+    expect(normalizeForm({ ...DEFAULT_FORM, step: 3 }).step).toBe(3);
+    expect(normalizeForm({ ...DEFAULT_FORM, mode: "weird" }).mode).toBe("max");
+  });
+
+  it("fixes mistyped plan fields", () => {
+    const f = normalizeForm({ ...DEFAULT_FORM, plans: [{ ...newPlan("p1"), kind: "lease", frequency: "weekly", yearPcts: [1] }] });
+    expect(f.plans[0].kind).toBe("developer");
+    expect(f.plans[0].frequency).toBe("yearly");
+    expect(f.plans[0].yearPcts).toEqual([]);
+  });
+});
+
+describe("normalizeForm — v1 migration", () => {
+  const v1 = {
+    currency: "USD",
+    startingCapital: "1,000,000",
+    rateMode: "effective",
+    effectiveRatePct: "12",
+    nominalRatePct: "18.51",
+    compounding: "365",
+    planYears: "6",
+    scheduleMode: "custom",
+    downPaymentPct: "20",
+    yearPcts: ["20", "20", "20", "20"],
+    frequency: "quarterly",
+    incomeAmount: "5000",
+    incomeFrequency: "yearly",
+    incomeIncreasePct: "3",
+    maintenancePct: "8",
+    maintenanceYear: "4",
+    finishingPct: "",
+    finishingYear: "2",
+    safetyBuffer: "100,000",
+    returnFeePct: "1",
+    keepPct: "30",
+    testPrice: "7,000,000",
+    purchaseKind: "developer-plan",
+    cashDiscountPct: "",
+    resaleRemaining: "",
+    resaleYears: "4",
+    resaleFrequency: "yearly",
+    loanEnabled: false,
+    loanSharePct: "100",
+    loanFlatRatePct: "12",
+    loanYears: "5",
+    lendingRatioPct: "100",
+    certificateRatePct: "11",
+    pledgeRelease: "at-end",
+    loanRatesEdited: false,
+  };
+
+  it("migrates installments into one plan and the money block", () => {
+    const f = normalizeForm(v1);
+    expect(f).toMatchObject({ version: 2, mode: "max", step: 1, selectedPlanId: "p1", examplesEdited: true });
+    expect(f.money).toMatchObject({
+      currency: "USD",
+      startingCapital: "1,000,000",
+      savingsVehicle: "fund",
+      fundRatePct: "12",
+      incomeAmount: "5000",
+      incomeFrequency: "yearly",
+      incomeIncreasePct: "3",
+      safetyBuffer: "100,000",
+      returnFeePct: "1",
+      keepPct: "30",
+    });
+    expect(f.plans).toHaveLength(1);
+    expect(f.plans[0]).toMatchObject({
+      id: "p1",
+      name: "",
+      kind: "developer",
+      nowPct: "20",
+      discountPct: "",
+      planYears: "6",
+      scheduleMode: "custom",
+      frequency: "quarterly",
+      maintenancePct: "8",
+      maintenanceYear: "4",
+      finishingYear: "2",
+      testPrice: "7,000,000",
+    });
+    expect(f.plans[0].yearPcts).toEqual(["20", "20", "20", "20"]);
+  });
+
+  it("turns developer cash into 100% now with the discount", () => {
+    const f = normalizeForm({ ...v1, purchaseKind: "developer-cash", cashDiscountPct: "15" });
+    expect(f.plans[0]).toMatchObject({ kind: "developer", nowPct: "100", discountPct: "15" });
+  });
+
+  it("converts a nominal rate to its effective equivalent", () => {
+    const f = normalizeForm({ ...v1, rateMode: "nominal", nominalRatePct: "18.51", compounding: "365" });
+    expect(Number(f.money.fundRatePct)).toBeCloseTo(20.33, 1);
+    expect(f.money.fundRatePct).toMatch(/^\d+\.\d{2}$/);
+  });
+
+  it("migrates a resale with a loan", () => {
+    const f = normalizeForm({
+      ...v1,
+      purchaseKind: "resale",
+      resaleRemaining: "5,000,000",
+      resaleYears: "4",
+      resaleFrequency: "quarterly",
+      loanEnabled: true,
+      loanSharePct: "90",
+      certificateRatePct: "13",
+      pledgeRelease: "gradual",
+      loanRatesEdited: true,
+    });
+    expect(f.plans[0]).toMatchObject({
+      kind: "resale",
+      resaleRemaining: "5,000,000",
+      resaleYears: "4",
+      resaleFrequency: "quarterly",
+      loanEnabled: true,
+      loanSharePct: "90",
+      loanCertificateRatePct: "13",
+      pledgeRelease: "gradual",
+      loanRatesEdited: true,
+    });
+    expect(parseForm(f).errors).toEqual([]);
+  });
+
+  it("falls back per field on a corrupt v1 form", () => {
+    const f = normalizeForm({ startingCapital: "1", planYears: 8, bogus: true });
+    expect(f.money.startingCapital).toBe("1");
+    expect(f.plans[0].planYears).toBe("8");
   });
 });
