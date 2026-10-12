@@ -119,8 +119,8 @@ describe("group tone", () => {
     // The guarantee coming back outweighs the year's installments, so the full net is positive…
     expect(bank.subtotal).toBeGreaterThan(0);
     expect(real).toBeLessThan(0);
-    // …but the colour follows the bank installments and the interest only.
-    expect(bank.tone).toBe("out");
+    // …the money that moved went out, so neither green nor a red "+": neutral.
+    expect(bank.tone).toBe("neutral");
   });
 
   it("is neutral when only held money moved, and follows the sign otherwise", () => {

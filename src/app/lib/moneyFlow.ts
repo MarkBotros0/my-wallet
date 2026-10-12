@@ -53,13 +53,12 @@ export function flowGroups(
   const keep = (rows: FlowRow[]) => rows.filter((r) => r.amount !== 0);
   const group = (id: FlowGroupId, title: string, rows: FlowRow[], start?: FlowRow): FlowGroup => {
     const kept = keep(rows);
-    return {
-      id,
-      title,
-      rows: start ? [start, ...kept] : kept,
-      subtotal: kept.reduce((s, r) => s + r.amount, 0),
-      tone: groupTone(kept),
-    };
+    const subtotal = kept.reduce((s, r) => s + r.amount, 0);
+    const real = groupTone(kept);
+    // A guarantee coming back can flip the sign: a "+" painted as money out
+    // (or a "−" as money in) reads as a contradiction, so it stays neutral.
+    const tone = (real === "in" && subtotal < 0) || (real === "out" && subtotal > 0) ? "neutral" : real;
+    return { id, title, rows: start ? [start, ...kept] : kept, subtotal, tone };
   };
 
   const groups = [
