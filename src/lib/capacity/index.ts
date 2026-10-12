@@ -31,8 +31,14 @@ export {
 export {
   DEFAULT_SENSITIVITY_DELTAS,
   DEFAULT_STEP,
+  bestPlan,
+  commonHorizon,
   compare,
+  compareTopUp,
   maxFeasiblePrice,
+  minTopUp,
   sensitivity,
+  solvePlans,
+  topUpSensitivity,
   withoutLoan,
 } from "./solve";

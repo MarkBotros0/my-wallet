@@ -2,18 +2,23 @@ import { loanProblems, loanTerms, pledgeHeld } from "./loan";
 import { activeLoan, buildDeal, horizonYears, purchaseOf, purchaseProblems } from "./purchase";
 import { monthlyRate } from "./rates";
 import { scheduleProblems } from "./schedule";
-import type { CalculatorInputs, InputProblem, MonthPoint, SimulationResult, YearSummary } from "./types";
+import type { CalculatorInputs, FlowTotals, InputProblem, MonthPoint, SimulationResult, YearSummary } from "./types";
 
 /**
  * The month-by-month engine.
  *
- * Month 0: the fund pays its share of the up-front payment (the rest is the
- * loan) and the pledge moves from the spendable fund into `held`.
+ * Month 0: the capital receives the loan, pays the GROSS up-front payment
+ * and locks the pledge (moves from the spendable fund into `held`); all three
+ * are recorded on the month-0 point.
  * Each month 1 … 12·horizon, in this order:
  *   1. growth — spendable × monthly rate × (1 − fee), on a POSITIVE balance
- *               only; certificate interest — held × certificateRate / 12;
- *   2. income — monthly every month, yearly at months 12, 24, …; both grow by
- *               the annual increase once per year;
+ *               only; the rate is the compounding yield of a "fund"
+ *               (monthlyRate(effective)) or rate / 12 for a "certificate"
+ *               (`effectiveAnnualRate` is then its quoted annual rate).
+ *               Certificate interest — held × certificateRate / 12;
+ *   2. income + top-up — monthly every month, yearly at months 12, 24, …;
+ *               both grow by the annual increase once per year, and are
+ *               recorded separately;
  *   3. payments — the developer installment due this month, any extra cost
  *               due at the end of this year, and the bank installment while
  *               the loan runs;
@@ -24,6 +29,12 @@ import type { CalculatorInputs, InputProblem, MonthPoint, SimulationResult, Year
  * included) — pledged money cannot cover an emergency — AND the plan ends
  * with at least `minKeptShare` of the starting capital. The horizon covers
  * the loan, so the pledge is always back by the end.
+ *
+ * Every flow is recorded on its own, so each year row and the deal reconcile:
+ *   opening + returns + certificateInterest + income + topUp + loanReceived
+ *     + released − upFront − pledged − installments − bankInstallments
+ *     − extraCosts = closing
+ * and, over the deal, startingCapital + Σin − Σout = finalBalance (`totals`).
  */
 
 /** Float noise guard: a balance this close to the buffer counts as on it. */
@@ -56,6 +67,9 @@ export function inputProblems(inputs: CalculatorInputs): InputProblem[] {
       field: "minKeptShare",
       message: "Savings to keep at the end must be between 0% and 100% of the starting capital.",
     });
+  }
+  if (inputs.topUp !== undefined && (!Number.isFinite(inputs.topUp) || inputs.topUp < 0)) {
+    problems.push({ field: "topUp", message: "Yearly top-up cannot be negative." });
   }
   if (!Number.isFinite(income.amount) || income.amount < 0) {
     problems.push({ field: "income.amount", message: "Extra income cannot be negative." });
@@ -107,7 +121,11 @@ function extraCostShares(inputs: CalculatorInputs, horizon: number): number[] {
 /** Simulate one price through the whole deal. Assumes `validateInputs` is empty. */
 export function simulate(inputs: CalculatorInputs, price: number, horizon = horizonYears(inputs)): SimulationResult {
   const { startingCapital, income, safetyBuffer, returnFee, minKeptShare } = inputs;
-  const rate = monthlyRate(inputs.effectiveAnnualRate) * (1 - returnFee);
+  const rate =
+    inputs.savingsVehicle === "certificate"
+      ? (inputs.effectiveAnnualRate / 12) * (1 - returnFee)
+      : monthlyRate(inputs.effectiveAnnualRate) * (1 - returnFee);
+  const topUpYearly = inputs.topUp ?? 0;
   const deal = buildDeal(inputs, price, horizon);
   const costShares = extraCostShares(inputs, horizon);
   const loan = activeLoan(inputs);
@@ -116,6 +134,7 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
 
   const upFrontFromFund = deal.upFront - (terms?.amount ?? 0);
   let held = terms?.pledge ?? 0;
+  const loanAmount = terms?.amount ?? 0;
   let balance = startingCapital - upFrontFromFund - held;
 
   const monthly: MonthPoint[] = [
@@ -124,6 +143,10 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
       balance,
       returns: 0,
       income: 0,
+      topUp: 0,
+      upFront: deal.upFront,
+      loanReceived: loanAmount,
+      pledged: held,
       installment: 0,
       extraCost: 0,
       certificateInterest: 0,
@@ -132,6 +155,19 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
       held,
     },
   ];
+  const totals: FlowTotals = {
+    returns: 0,
+    certificateInterest: 0,
+    income: 0,
+    topUp: 0,
+    loanReceived: loanAmount,
+    released: 0,
+    upFront: deal.upFront,
+    pledged: held,
+    installments: 0,
+    bankInstallments: 0,
+    extraCosts: 0,
+  };
   const years: YearSummary[] = [];
   let minBalance = balance;
   let firstBreach: SimulationResult["firstBreach"] = null;
@@ -150,6 +186,7 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
     const opening = year === 1 ? startingCapital : balance;
     let returns = 0;
     let incomeAdded = 0;
+    let topUpAdded = 0;
     let installments = 0;
     let extraCosts = 0;
     let certificateInterest = 0;
@@ -157,7 +194,9 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
     let released = 0;
     let lowest = year === 1 ? balance : Number.POSITIVE_INFINITY;
 
-    const incomeThisYear = income.amount * Math.pow(1 + income.annualIncrease, year - 1);
+    const growthFactor = Math.pow(1 + income.annualIncrease, year - 1);
+    const incomeThisYear = income.amount * growthFactor;
+    const topUpThisYear = topUpYearly * growthFactor;
 
     for (let m = 1; m <= 12; m++) {
       const month = (year - 1) * 12 + m;
@@ -171,8 +210,11 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
 
       // 2. income
       const due = income.frequency === "monthly" ? incomeThisYear : m === 12 ? incomeThisYear : 0;
-      balance += due;
+      const topUpDue =
+        income.frequency === "monthly" ? topUpThisYear / 12 : m === 12 ? topUpThisYear : 0;
+      balance += due + topUpDue;
       incomeAdded += due;
+      topUpAdded += topUpDue;
 
       // 3. payments
       const installment = deal.developerDue[month];
@@ -195,6 +237,10 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
         balance,
         returns: growth,
         income: due,
+        topUp: topUpDue,
+        upFront: 0,
+        loanReceived: 0,
+        pledged: 0,
         installment,
         extraCost: cost,
         certificateInterest: certificate,
@@ -212,12 +258,22 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
     totalExtraCosts += extraCosts;
     totalInstallments += installments;
     totalCertificateInterest += certificateInterest;
+    totals.returns += returns;
+    totals.certificateInterest += certificateInterest;
+    totals.income += incomeAdded;
+    totals.topUp += topUpAdded;
+    totals.released += released;
+    totals.installments += installments;
+    totals.bankInstallments += bankInstallments;
+    totals.extraCosts += extraCosts;
     years.push({
       year,
       opening,
-      downPayment: year === 1 ? upFrontFromFund : 0,
+      upFront: year === 1 ? deal.upFront : 0,
+      loanReceived: year === 1 ? loanAmount : 0,
       returns,
       income: incomeAdded,
+      topUp: topUpAdded,
       installments,
       extraCosts,
       pledged: year === 1 ? (terms?.pledge ?? 0) : 0,
@@ -237,6 +293,9 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
   return {
     price,
     feasible: firstBreach === null && endShortfall === null,
+    startingCapital,
+    topUp: topUpYearly,
+    totals,
     downPayment: deal.upFront,
     upFront: deal.upFront,
     upFrontFromFund,

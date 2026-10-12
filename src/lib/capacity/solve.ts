@@ -1,6 +1,14 @@
-import { horizonYears, purchaseOf } from "./purchase";
+import { horizonYears } from "./purchase";
 import { isFeasible, simulate } from "./simulate";
-import type { CalculatorInputs, CapacityResult, Comparison, SensitivityRow } from "./types";
+import type {
+  Ask,
+  CalculatorInputs,
+  CapacityResult,
+  Comparison,
+  PlanResult,
+  SensitivityRow,
+  TopUpResult,
+} from "./types";
 
 /**
  * Find the most expensive property the plan can carry.
@@ -61,35 +69,125 @@ export function sensitivity(
   inputs: CalculatorInputs,
   deltas: readonly number[] = DEFAULT_SENSITIVITY_DELTAS,
   step = DEFAULT_STEP,
+  horizon?: number,
 ): SensitivityRow[] {
   return deltas.map((delta) => {
     const effectiveAnnualRate = Math.max(0, inputs.effectiveAnnualRate + delta);
-    const { maxPrice } = maxFeasiblePrice({ ...inputs, effectiveAnnualRate }, step);
+    const { maxPrice } = maxFeasiblePrice({ ...inputs, effectiveAnnualRate }, step, horizon);
     return { delta, effectiveAnnualRate, maxPrice };
   });
 }
 
 /**
- * The same purchase paid without the bank: the loan switched off, and a
- * developer cash purchase — which only makes sense with money in hand —
- * replaced by the developer's installment plan it would otherwise be.
+ * The least yearly top-up that makes `price` work.
+ *
+ * Feasibility is monotonic in the top-up (more money at every point never
+ * hurts), so: 0 when the price already works; otherwise bracket by doubling
+ * from one step and bisect on the step grid. When even an enormous top-up
+ * (1e12) fails, top-ups cannot help — `blocker` says why: "day-one" if the
+ * first breach is month 0 (the up-front payment or pledge needs more savings
+ * than there are), else "too-early" (a payment falls due before the first
+ * top-up arrives). An end-shortfall-only failure is always fixable by top-ups,
+ * so it never reaches the blocker.
  */
+export function minTopUp(
+  inputs: CalculatorInputs,
+  price: number,
+  step = DEFAULT_STEP,
+  horizon = horizonYears(inputs),
+): TopUpResult {
+  const at = (topUp: number) => simulate({ ...inputs, topUp }, price, horizon);
+  const base = at(0);
+  if (base.feasible) return { topUp: 0, simulation: base, blocker: null };
+  if (!at(1e12).feasible) {
+    return { topUp: null, simulation: base, blocker: base.firstBreach?.month === 0 ? "day-one" : "too-early" };
+  }
+
+  const unit = Math.max(step, 1);
+  let lo = 0; // in units, known infeasible
+  let hi = 1; // in units
+  while (!at(hi * unit).feasible) {
+    lo = hi;
+    hi *= 2;
+  }
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (at(mid * unit).feasible) hi = mid;
+    else lo = mid;
+  }
+  return { topUp: hi * unit, simulation: at(hi * unit), blocker: null };
+}
+
+/** Years to simulate so several plans end on the same date: the longest horizon, at least 1. */
+export function commonHorizon(plans: CalculatorInputs[]): number {
+  return Math.max(1, ...plans.map(horizonYears));
+}
+
+/**
+ * Solve every plan over ONE horizon. "max" finds each plan's maximum list
+ * price; "topUp" finds the least yearly top-up for the price asked about
+ * (`prices[i]` for plan i, falling back to the first price).
+ */
+export function solvePlans(plans: CalculatorInputs[], ask: Ask, step = DEFAULT_STEP): PlanResult[] {
+  const horizon = commonHorizon(plans);
+  return plans.map((plan, i) => {
+    if (ask.mode === "max") {
+      const { maxPrice, simulation } = maxFeasiblePrice(plan, step, horizon);
+      return { price: maxPrice, topUp: null, blocker: null, simulation };
+    }
+    const price = ask.prices[i] ?? ask.prices[0];
+    if (price === undefined) return { price: null, topUp: null, blocker: null, simulation: null };
+    const r = minTopUp(plan, price, step, horizon);
+    return { price, topUp: r.topUp, blocker: r.blocker, simulation: r.simulation };
+  });
+}
+
+/** Index of the best plan: highest price (max) or lowest top-up (topUp); ties go to the first; nulls never win. */
+export function bestPlan(results: PlanResult[], mode: Ask["mode"]): number | null {
+  let best: number | null = null;
+  let bestValue = 0;
+  results.forEach((r, i) => {
+    const value = mode === "max" ? r.price : r.topUp;
+    if (value === null) return;
+    if (best === null || (mode === "max" ? value > bestValue : value < bestValue)) {
+      best = i;
+      bestValue = value;
+    }
+  });
+  return best;
+}
+
+/** The top-up needed at a few return rates around the current one (the rate clamps at 0%). */
+export function topUpSensitivity(
+  inputs: CalculatorInputs,
+  price: number,
+  deltas: readonly number[] = DEFAULT_SENSITIVITY_DELTAS,
+  step = DEFAULT_STEP,
+  horizon?: number,
+): { delta: number; effectiveAnnualRate: number; topUp: number | null }[] {
+  return deltas.map((delta) => {
+    const effectiveAnnualRate = Math.max(0, inputs.effectiveAnnualRate + delta);
+    const { topUp } = minTopUp({ ...inputs, effectiveAnnualRate }, price, step, horizon);
+    return { delta, effectiveAnnualRate, topUp };
+  });
+}
+
+/** The same purchase paid without the bank: the loan switched off, nothing else changes. */
 export function withoutLoan(inputs: CalculatorInputs): CalculatorInputs {
-  const purchase = purchaseOf(inputs);
-  return {
-    ...inputs,
-    loan: inputs.loan ? { ...inputs.loan, enabled: false } : undefined,
-    purchase: purchase.kind === "developer-cash" ? { ...purchase, kind: "developer-plan" } : purchase,
-  };
+  return { ...inputs, loan: inputs.loan ? { ...inputs.loan, enabled: false } : undefined };
 }
 
 /**
  * "Is the loan worth it?" — both maxima, and both simulations at a price
- * being checked, over ONE horizon (the deal's, which is never shorter than
- * the alternative's) so the two final balances are measured on the same date.
+ * being checked, over ONE horizon (the deal's, unless one is given) so the
+ * two final balances are measured on the same date.
  */
-export function compare(inputs: CalculatorInputs, testPrice: number | null = null, step = DEFAULT_STEP): Comparison {
-  const horizon = horizonYears(inputs);
+export function compare(
+  inputs: CalculatorInputs,
+  testPrice: number | null = null,
+  step = DEFAULT_STEP,
+  horizon = horizonYears(inputs),
+): Comparison {
   const base = withoutLoan(inputs);
   return {
     horizonYears: horizon,
@@ -99,5 +197,19 @@ export function compare(inputs: CalculatorInputs, testPrice: number | null = nul
       testPrice === null
         ? null
         : { withLoan: simulate(inputs, testPrice, horizon), withoutLoan: simulate(base, testPrice, horizon) },
+  };
+}
+
+/** The loan question in top-up mode: the least yearly top-up with and without the loan, over one horizon. */
+export function compareTopUp(
+  inputs: CalculatorInputs,
+  price: number,
+  step = DEFAULT_STEP,
+  horizon = horizonYears(inputs),
+): { horizonYears: number; withLoan: TopUpResult; withoutLoan: TopUpResult } {
+  return {
+    horizonYears: horizon,
+    withLoan: minTopUp(inputs, price, step, horizon),
+    withoutLoan: minTopUp(withoutLoan(inputs), price, step, horizon),
   };
 }

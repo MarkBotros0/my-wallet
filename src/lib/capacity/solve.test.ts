@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { REFERENCE } from "./fixtures";
 import { simulate, validateInputs } from "./simulate";
-import { compare, maxFeasiblePrice, sensitivity, withoutLoan } from "./solve";
-import type { CalculatorInputs, LoanInput, PurchaseInput } from "./types";
+import {
+  bestPlan,
+  commonHorizon,
+  compare,
+  compareTopUp,
+  maxFeasiblePrice,
+  minTopUp,
+  sensitivity,
+  solvePlans,
+  topUpSensitivity,
+  withoutLoan,
+} from "./solve";
+import type { CalculatorInputs, LoanInput, PlanResult, PurchaseInput } from "./types";
 
 const withInputs = (over: Partial<CalculatorInputs>): CalculatorInputs => ({ ...REFERENCE, ...over });
 
@@ -150,13 +161,13 @@ describe("maxFeasiblePrice — monotonic for every kind, loan on and off", () =>
     enabled: true, share: 0.9, flatRate: 0.12, years: 5, lendingRatio: 1, certificateRate: 0.11, release: "gradual",
   };
   const purchases: PurchaseInput[] = [
-    { kind: "developer-plan", cashDiscount: 0, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
-    { kind: "developer-cash", cashDiscount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
-    { kind: "resale", cashDiscount: 0, resaleRemaining: 2_000_000, resaleYears: 4, resaleFrequency: "quarterly" },
+    { kind: "developer-plan", discount: 0, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+    { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+    { kind: "resale", discount: 0, resaleRemaining: 2_000_000, resaleYears: 4, resaleFrequency: "quarterly" },
   ];
   for (const purchase of purchases) {
     for (const loan of [undefined, LOAN]) {
-      it(`${purchase.kind}, ${loan ? "with" : "without"} a loan`, () => {
+      it(`${purchase.kind} (discount ${purchase.discount}), ${loan ? "with" : "without"} a loan`, () => {
         const inputs = withInputs({
           purchase,
           loan,
@@ -179,13 +190,13 @@ describe("withoutLoan / compare", () => {
     enabled: true, share: 1, flatRate: 0.1, years: 10, lendingRatio: 1, certificateRate: 0.15, release: "at-end",
   };
   const CASH: PurchaseInput = {
-    kind: "developer-cash", cashDiscount: 0.3, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly",
+    kind: "developer-plan", discount: 0.3, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly",
   };
 
-  it("turns the loan off, and a cash purchase back into the developer's plan", () => {
+  it("only turns the loan off", () => {
     const base = withoutLoan(withInputs({ purchase: CASH, loan: LOAN }));
     expect(base.loan?.enabled ?? false).toBe(false);
-    expect(base.purchase!.kind).toBe("developer-plan");
+    expect(base.purchase).toEqual(CASH);
     const resale = withoutLoan(withInputs({ purchase: { ...CASH, kind: "resale", resaleYears: 3 }, loan: LOAN }));
     expect(resale.purchase!.kind).toBe("resale");
   });
@@ -204,5 +215,108 @@ describe("withoutLoan / compare", () => {
     expect(c.withLoan.maxPrice).toBe(maxFeasiblePrice(inputs).maxPrice);
     expect(c.withoutLoan.maxPrice).toBe(maxFeasiblePrice(withoutLoan(inputs), undefined, 10).maxPrice);
     expect(c.tested).toBeNull();
+  });
+});
+
+describe("minTopUp", () => {
+  it("is 0 when the price already works", () => {
+    const r = minTopUp(REFERENCE, 8_000_000);
+    expect(r).toMatchObject({ topUp: 0, blocker: null });
+    expect(r.simulation.feasible).toBe(true);
+  });
+  it("finds the least top-up on the step grid", () => {
+    const inputs = withInputs({ income: { amount: 0, frequency: "yearly", annualIncrease: 0 } });
+    const r = minTopUp(inputs, 8_860_000);
+    expect(r.topUp).not.toBeNull();
+    const t = r.topUp!;
+    expect(t).toBeGreaterThan(0);
+    expect(t).toBeLessThanOrEqual(300_000);
+    expect(t % 1000).toBe(0);
+    expect(simulate({ ...inputs, topUp: t }, 8_860_000).feasible).toBe(true);
+    expect(simulate({ ...inputs, topUp: t - 1000 }, 8_860_000).feasible).toBe(false);
+    expect(r.simulation.topUp).toBe(t);
+  });
+  it('blocks "day-one" when the up-front payment needs more than the savings', () => {
+    const r = minTopUp(
+      withInputs({ schedule: { downPayment: 0.6, planYears: 8, mode: "equal", frequency: "yearly" } }),
+      10_000_000,
+    );
+    expect(r.topUp).toBeNull();
+    expect(r.blocker).toBe("day-one");
+    expect(r.simulation.topUp).toBe(0);
+  });
+  it('blocks "too-early" when a payment falls due before the first top-up arrives', () => {
+    const r = minTopUp(
+      withInputs({
+        schedule: { downPayment: 0, planYears: 8, mode: "equal", frequency: "monthly" },
+        safetyBuffer: 4_999_999,
+      }),
+      9_600_000,
+    );
+    expect(r.topUp).toBeNull();
+    expect(r.blocker).toBe("too-early");
+  });
+  it("is monotonic in price", () => {
+    const inputs = withInputs({ income: { amount: 0, frequency: "yearly", annualIncrease: 0 } });
+    const tops = [8_000_000, 8_500_000, 9_000_000, 9_500_000, 10_000_000].map((p) => minTopUp(inputs, p).topUp);
+    for (let i = 1; i < tops.length; i++) expect(tops[i - 1]!).toBeLessThanOrEqual(tops[i]!);
+  });
+});
+
+describe("solvePlans / bestPlan", () => {
+  const cash = withInputs({
+    schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
+    purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+  });
+  const short = withInputs({ schedule: { downPayment: 1, planYears: 1, mode: "equal", frequency: "yearly" } });
+  const plans = [REFERENCE, cash, short];
+
+  it("solves every plan over one horizon", () => {
+    expect(commonHorizon(plans)).toBe(8);
+    const rs = solvePlans(plans, { mode: "max" });
+    for (const r of rs) expect(r.simulation!.horizonYears).toBe(8);
+    plans.forEach((plan, i) => expect(rs[i].price).toBe(maxFeasiblePrice(plan, 1000, 8).maxPrice));
+    expect(rs[0].price).toBe(8_860_000);
+    expect(rs[0].topUp).toBeNull();
+  });
+  it("top-up mode returns each plan's minimum top-up for the price asked", () => {
+    const poor = plans.map((p) => ({ ...p, income: { amount: 0, frequency: "yearly" as const, annualIncrease: 0 } }));
+    const rs = solvePlans(poor, { mode: "topUp", prices: [9_000_000, 9_000_000, 9_000_000] });
+    poor.forEach((plan, i) => {
+      const expected = minTopUp(plan, 9_000_000, 1000, 8);
+      expect(rs[i]).toMatchObject({ price: 9_000_000, topUp: expected.topUp, blocker: expected.blocker });
+      expect(rs[i].simulation!.horizonYears).toBe(8);
+    });
+  });
+  it("bestPlan: highest price or lowest top-up, first on a tie, nulls never", () => {
+    const r = (price: number | null, topUp: number | null = null): PlanResult => ({
+      price, topUp, blocker: null, simulation: null,
+    });
+    expect(bestPlan([r(5), r(9), r(9), r(null)], "max")).toBe(1);
+    expect(bestPlan([r(9, null), r(9, 200), r(9, 100), r(9, 100)], "topUp")).toBe(2);
+    expect(bestPlan([r(null), r(null)], "max")).toBeNull();
+    expect(bestPlan([r(9, null)], "topUp")).toBeNull();
+    expect(bestPlan([], "max")).toBeNull();
+  });
+});
+
+describe("topUpSensitivity / compareTopUp / horizon params", () => {
+  const poor = withInputs({ income: { amount: 0, frequency: "yearly", annualIncrease: 0 } });
+  it("reports a top-up per rate, falling as the rate rises", () => {
+    const rows = topUpSensitivity(poor, 8_860_000);
+    expect(rows.map((r) => r.delta)).toEqual([-0.06, -0.03, 0, 0.03]);
+    const tops = rows.map((r) => r.topUp!);
+    for (let i = 1; i < tops.length; i++) expect(tops[i]).toBeLessThanOrEqual(tops[i - 1]);
+  });
+  it("sensitivity accepts a longer horizon", () => {
+    expect(sensitivity(REFERENCE, [0], 1000, 8)[0].maxPrice).toBe(8_860_000);
+    expect(sensitivity(REFERENCE, [0], 1000, 10)[0].maxPrice).not.toBeNull();
+  });
+  it("compare takes a horizon; compareTopUp solves both sides over one", () => {
+    expect(compare(REFERENCE, null, 1000, 10).horizonYears).toBe(10);
+    const c = compareTopUp(poor, 8_860_000, 1000, 10);
+    expect(c.horizonYears).toBe(10);
+    expect(c.withLoan.simulation.horizonYears).toBe(10);
+    expect(c.withoutLoan.simulation.horizonYears).toBe(10);
   });
 });

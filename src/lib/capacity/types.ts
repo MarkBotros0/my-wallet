@@ -49,12 +49,23 @@ export interface ExtraCost {
 }
 
 /** How the property is bought — what the up-front payment is and what is owed after it. */
-export type PurchaseKind = "developer-plan" | "developer-cash" | "resale";
+export type PurchaseKind = "developer-plan" | "resale";
+
+/**
+ * Where the savings sit. A "fund" compounds: `effectiveAnnualRate` is its
+ * effective yearly yield. A "certificate" pays its quoted annual rate in
+ * monthly instalments (rate / 12) — `effectiveAnnualRate` then holds that
+ * quoted rate, and growth is simple monthly interest, not compounding.
+ */
+export type SavingsVehicle = "fund" | "certificate";
 
 export interface PurchaseInput {
   kind: PurchaseKind;
-  /** developer-cash: fraction off the installment price for paying it all now. */
-  cashDiscount: number;
+  /**
+   * developer-plan: fraction off the LIST price (0 = none), in [0, 1). The
+   * price asked about stays the list price, so plans' maxima compare.
+   */
+  discount: number;
   /** resale: what the seller still owes the developer — a fixed amount, never scaled by price. */
   resaleRemaining: number;
   /** resale: whole years left on that balance, 1–15; split equally. */
@@ -87,8 +98,19 @@ export interface LoanInput {
 
 export interface CalculatorInputs {
   startingCapital: number;
-  /** Effective annual yield of the fund, as a fraction. */
+  /**
+   * Effective annual yield of the fund, as a fraction — or, for
+   * `savingsVehicle: "certificate"`, the certificate's quoted annual rate.
+   */
   effectiveAnnualRate: number;
+  /** Where the savings sit. Absent = "fund". */
+  savingsVehicle?: SavingsVehicle;
+  /**
+   * A yearly amount added on top of income, with income's frequency (monthly:
+   * topUp / 12 every month; yearly: at months 12, 24, …) and growing by
+   * `income.annualIncrease`. Absent = 0.
+   */
+  topUp?: number;
   schedule: ScheduleInput;
   income: IncomeInput;
   /** Maintenance deposit — `share: 0` disables it. */
@@ -130,7 +152,8 @@ export type InputField =
   | "maintenance.year"
   | "finishing.share"
   | "finishing.year"
-  | "purchase.cashDiscount"
+  | "topUp"
+  | "purchase.discount"
   | "purchase.resaleRemaining"
   | "purchase.resaleYears"
   | "loan.share"
@@ -150,13 +173,20 @@ export interface MonthPoint {
   /** The SPENDABLE fund — pledged certificates are in `held`, not here. */
   balance: number;
   /**
-   * What moved the balance THIS month. All zero at month 0 — the up-front
-   * payment and the pledge are on the result, not on the point.
-   * `balance = previous + returns + certificateInterest + income − installment
-   *  − extraCost − bankInstallment + released`.
+   * What moved the balance THIS month. At month 0 only `upFront`,
+   * `loanReceived` and `pledged` are non-zero.
+   * `balance = previous + returns + certificateInterest + income + topUp
+   *  − installment − extraCost − bankInstallment + released`.
+   * Month 0 is `startingCapital + loanReceived − upFront − pledged`.
    */
   returns: number;
   income: number;
+  /** The yearly top-up's part of this month (separate from `income`). */
+  topUp: number;
+  /** Month 0 only: the gross up-front payment, the loan received, the pledge locked. */
+  upFront: number;
+  loanReceived: number;
+  pledged: number;
   /** Developer installment (the plan's, or the seller's remaining balance). */
   installment: number;
   extraCost: number;
@@ -170,19 +200,22 @@ export interface MonthPoint {
 
 /**
  * One year of the plan as a ledger row. Every row reconciles:
- * `opening + returns + certificateInterest + income + released − downPayment − pledged − installments − bankInstallments − extraCosts = closing`.
- * `downPayment` is the part of the up-front payment that came from the fund
- * (the rest is the loan). The up-front payment is a YEAR-1 flow: year 1 opens
+ * `opening + returns + certificateInterest + income + topUp + loanReceived + released − upFront − pledged − installments − bankInstallments − extraCosts = closing`.
+ * `upFront` is the GROSS up-front payment and `loanReceived` the part of it
+ * the bank lent. The up-front payment is a YEAR-1 flow: year 1 opens
  * on the starting capital (before the payment) so the reader sees where they
  * actually began; every later year opens on the previous closing.
  */
 export interface YearSummary {
   year: number;
   opening: number;
-  /** The part of the up-front payment paid from the fund, year 1 only; 0 after. */
-  downPayment: number;
+  /** The gross up-front payment, year 1 only; 0 after. */
+  upFront: number;
+  /** The part of it the bank lent, year 1 only; 0 after. */
+  loanReceived: number;
   returns: number;
   income: number;
+  topUp: number;
   installments: number;
   extraCosts: number;
   /** Locked as the bank's guarantee — year 1 only. */
@@ -214,10 +247,30 @@ export interface LoanSummary {
   netCost: number;
 }
 
+/** Every flow summed over the deal; the whole deal reconciles through these. */
+export interface FlowTotals {
+  returns: number;
+  certificateInterest: number;
+  income: number;
+  topUp: number;
+  loanReceived: number;
+  released: number;
+  upFront: number;
+  pledged: number;
+  installments: number;
+  bankInstallments: number;
+  extraCosts: number;
+}
+
 export interface SimulationResult {
   price: number;
   feasible: boolean;
-  /** The whole up-front payment at month 0 (the down payment, the cash price, or the cash to the seller). */
+  startingCapital: number;
+  /** The yearly top-up this run used (0 when none). */
+  topUp: number;
+  /** `startingCapital + Σin − Σout = finalBalance`, from these. */
+  totals: FlowTotals;
+  /** Same as `upFront`; kept until the UI stops reading it. */
   downPayment: number;
   upFront: number;
   /** The part of `upFront` paid from the fund — the rest is the loan. */
@@ -267,4 +320,27 @@ export interface SensitivityRow {
   /** Difference from the current rate (e.g. -0.03). */
   delta: number;
   maxPrice: number | null;
+}
+
+/** What the user asks of a set of plans. */
+export type Ask = { mode: "max" } | { mode: "topUp"; prices: number[] };
+
+/** Why a top-up cannot make a price work: it is due before any top-up can help. */
+export type TopUpBlocker = "day-one" | "too-early";
+
+export interface TopUpResult {
+  /** The least yearly top-up that makes the price feasible; null when none can. */
+  topUp: number | null;
+  /** The run at that top-up; at top-up 0 when `topUp` is null. */
+  simulation: SimulationResult;
+  blocker: TopUpBlocker | null;
+}
+
+export interface PlanResult {
+  /** max mode: the maximum price; topUp mode: the price asked about. null = nothing affordable (max mode). */
+  price: number | null;
+  /** topUp mode only; null in max mode or when a blocker stops it. */
+  topUp: number | null;
+  blocker: TopUpBlocker | null;
+  simulation: SimulationResult | null;
 }

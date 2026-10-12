@@ -3,12 +3,13 @@ import type { CalculatorInputs, InputProblem, LoanInput, PurchaseInput } from ".
 
 /**
  * How the property is bought, as the engine sees it: an up-front payment at
- * month 0, then an optional stream of developer installments. The three
+ * month 0, then an optional stream of developer installments. The two
  * kinds differ only in how `price` maps onto those two:
  *
- *   developer-plan — down payment × price now, the plan's shares × price after;
- *   developer-cash — price × (1 − discount) now, nothing after. `price` stays
- *                    the INSTALLMENT price so its maximum compares with the plan's;
+ *   developer-plan — with net = price × (1 − discount): down payment × net now,
+ *                    the plan's shares × net after, costs on net. `price` stays
+ *                    the LIST price so plans' maxima compare; a down payment of
+ *                    100% is a cash purchase (nothing after);
  *   resale         — price (the cash to the seller) now, then the seller's
  *                    fixed remaining balance, split equally over its years.
  */
@@ -16,7 +17,7 @@ import type { CalculatorInputs, InputProblem, LoanInput, PurchaseInput } from ".
 /** Inputs without a `purchase` are the original calculator: developer installments. */
 export const DEFAULT_PURCHASE: PurchaseInput = {
   kind: "developer-plan",
-  cashDiscount: 0,
+  discount: 0,
   resaleRemaining: 0,
   resaleYears: 1,
   resaleFrequency: "yearly",
@@ -31,11 +32,7 @@ export function activeLoan(inputs: CalculatorInputs): LoanInput | null {
   return inputs.loan?.enabled ? inputs.loan : null;
 }
 
-/**
- * Years of the developer stream. A cash purchase still reports the plan's
- * years: that plan is its no-loan alternative, and both sides of a
- * comparison must end on the same month.
- */
+/** Years of the developer stream (the plan's years even when nothing falls due after the down payment). */
 export function developerYears(inputs: CalculatorInputs): number {
   const p = purchaseOf(inputs);
   return p.kind === "resale" ? p.resaleYears : inputs.schedule.planYears;
@@ -65,19 +62,17 @@ export function buildDeal(inputs: CalculatorInputs, price: number, horizon: numb
   };
   const p = purchaseOf(inputs);
   switch (p.kind) {
-    case "developer-cash": {
-      const cash = price * (1 - p.cashDiscount);
-      return { upFront: cash, developerDue, costBase: cash };
-    }
     case "resale":
       spread(
         buildInstallmentShares({ downPayment: 0, planYears: p.resaleYears, mode: "equal", frequency: p.resaleFrequency }),
         p.resaleRemaining,
       );
       return { upFront: price, developerDue, costBase: price + p.resaleRemaining };
-    default:
-      spread(buildInstallmentShares(inputs.schedule), price);
-      return { upFront: price * inputs.schedule.downPayment, developerDue, costBase: price };
+    default: {
+      const net = price * (1 - p.discount);
+      spread(buildInstallmentShares(inputs.schedule), net);
+      return { upFront: net * inputs.schedule.downPayment, developerDue, costBase: net };
+    }
   }
 }
 
@@ -85,8 +80,8 @@ export function buildDeal(inputs: CalculatorInputs, price: number, horizon: numb
 export function purchaseProblems(inputs: CalculatorInputs): InputProblem[] {
   const p = purchaseOf(inputs);
   const problems: InputProblem[] = [];
-  if (p.kind === "developer-cash" && (!Number.isFinite(p.cashDiscount) || p.cashDiscount < 0 || p.cashDiscount >= 1)) {
-    problems.push({ field: "purchase.cashDiscount", message: "Cash discount must be at least 0% and less than 100%." });
+  if (p.kind === "developer-plan" && (!Number.isFinite(p.discount) || p.discount < 0 || p.discount >= 1)) {
+    problems.push({ field: "purchase.discount", message: "Discount must be at least 0% and less than 100%." });
   }
   if (p.kind === "resale") {
     if (!Number.isFinite(p.resaleRemaining) || p.resaleRemaining < 0) {

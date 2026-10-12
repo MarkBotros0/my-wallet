@@ -16,7 +16,7 @@ const NO_PAYMENTS: CalculatorInputs = withInputs({
 });
 
 describe("simulate — month 0", () => {
-  it("starts with capital minus the down payment, with no flows of its own", () => {
+  it("starts with capital minus the up-front payment; only the up-front flows are on the point", () => {
     const r = simulate(REFERENCE, 8_000_000);
     expect(r.downPayment).toBe(800_000);
     expect(r.monthly[0]).toEqual({
@@ -24,6 +24,10 @@ describe("simulate — month 0", () => {
       balance: 4_200_000,
       returns: 0,
       income: 0,
+      topUp: 0,
+      upFront: 800_000,
+      loanReceived: 0,
+      pledged: 0,
       installment: 0,
       extraCost: 0,
       certificateInterest: 0,
@@ -215,7 +219,7 @@ describe("simulate — year table", () => {
     const r = simulate(withInputs({ schedule: { ...REFERENCE.schedule, frequency: "monthly" } }), 8_000_000);
     expect(r.years).toHaveLength(8);
     expect(r.years[0].opening).toBe(REFERENCE.startingCapital);
-    expect(r.years[0].opening - r.years[0].downPayment).toBe(r.monthly[0].balance);
+    expect(r.years[0].opening - r.years[0].upFront).toBe(r.monthly[0].balance);
     for (let i = 1; i < r.years.length; i++) {
       expect(r.years[i].opening).toBe(r.years[i - 1].closing);
     }
@@ -224,14 +228,14 @@ describe("simulate — year table", () => {
 
   it("puts the down payment on year 1 only", () => {
     const r = simulate(REFERENCE, 8_000_000);
-    expect(r.years[0].downPayment).toBe(r.downPayment);
-    expect(r.years.slice(1).every((y) => y.downPayment === 0)).toBe(true);
+    expect(r.years[0].upFront).toBe(r.upFront);
+    expect(r.years.slice(1).every((y) => y.upFront === 0)).toBe(true);
   });
 
   it("balances every row: opening + returns + income − down payment − installments − extra costs = closing", () => {
     const r = simulate(withInputs({ schedule: { ...REFERENCE.schedule, frequency: "quarterly" } }), 8_000_000);
     for (const y of r.years) {
-      expect(y.opening + y.returns + y.income - y.downPayment - y.installments - y.extraCosts).toBeCloseTo(
+      expect(y.opening + y.returns + y.income - y.upFront - y.installments - y.extraCosts).toBeCloseTo(
         y.closing,
         6,
       );
@@ -340,7 +344,7 @@ const LOAN: LoanInput = {
 };
 const RESALE: PurchaseInput = {
   kind: "resale",
-  cashDiscount: 0,
+  discount: 0,
   resaleRemaining: 5_000_000,
   resaleYears: 4,
   resaleFrequency: "yearly",
@@ -434,7 +438,8 @@ describe("simulate — with a loan against certificates", () => {
     const withLoan = simulate(
       {
         ...base,
-        purchase: { ...RESALE, kind: "developer-cash", cashDiscount: 0 },
+        schedule: { ...base.schedule, downPayment: 1 },
+        purchase: { ...RESALE, kind: "developer-plan", discount: 0 },
         loan: { ...LOAN, share: 1, flatRate: 0, certificateRate: rate },
       },
       10_000_000,
@@ -451,8 +456,8 @@ describe("simulate — with a loan against certificates", () => {
       const r = simulate(withInputs({ ...RESALE_DEAL, loan: { ...LOAN, release } }), 10_000_000);
       for (const y of r.years) {
         expect(y.closing).toBeCloseTo(
-          y.opening + y.returns + y.certificateInterest + y.income + y.released
-            - y.downPayment - y.pledged - y.installments - y.bankInstallments - y.extraCosts,
+          y.opening + y.returns + y.certificateInterest + y.income + y.topUp + y.loanReceived + y.released
+            - y.upFront - y.pledged - y.installments - y.bankInstallments - y.extraCosts,
           4,
         );
       }
@@ -461,11 +466,12 @@ describe("simulate — with a loan against certificates", () => {
     }
   });
 
-  it("puts extra costs on the cash price for a developer cash purchase, and on cash + remaining for a resale", () => {
+  it("puts extra costs on the net price for a discounted cash purchase, and on cash + remaining for a resale", () => {
     const cash = simulate(
       withInputs({
         startingCapital: 20_000_000,
-        purchase: { ...RESALE, kind: "developer-cash", cashDiscount: 0.3 },
+        schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
+        purchase: { ...RESALE, kind: "developer-plan", discount: 0.3 },
         maintenance: { share: 0.1, year: 1 },
       }),
       10_000_000,
@@ -498,5 +504,145 @@ describe("inputProblems — purchase and loan", () => {
     ).map((p) => p.field);
     expect(fields).toContain("purchase.resaleYears");
     expect(fields).toContain("loan.lendingRatio");
+  });
+});
+
+describe("simulate — savings vehicle", () => {
+  const base = withInputs({
+    startingCapital: 1_200_000,
+    effectiveAnnualRate: 0.12,
+    income: { amount: 0, frequency: "yearly", annualIncrease: 0 },
+    maintenance: { share: 0, year: 1 },
+    safetyBuffer: 0,
+  });
+  it("a certificate pays rate / 12 a month; a fund (or no vehicle) compounds", () => {
+    expect(simulate({ ...base, savingsVehicle: "certificate" }, 0).monthly[1].returns).toBeCloseTo(12_000, 9);
+    const fund = 1_200_000 * (Math.pow(1.12, 1 / 12) - 1);
+    expect(fund).toBeCloseTo(11_387.0, 0);
+    expect(simulate({ ...base, savingsVehicle: "fund" }, 0).monthly[1].returns).toBeCloseTo(fund, 9);
+    expect(simulate(base, 0).monthly[1].returns).toBeCloseTo(fund, 9);
+  });
+  it("the return fee cuts both by 10%", () => {
+    const fee = { ...base, returnFee: 0.1 };
+    expect(simulate({ ...fee, savingsVehicle: "certificate" }, 0).monthly[1].returns).toBeCloseTo(10_800, 9);
+    expect(simulate(fee, 0).monthly[1].returns).toBeCloseTo(1_200_000 * (Math.pow(1.12, 1 / 12) - 1) * 0.9, 9);
+  });
+});
+
+describe("simulate — yearly top-up", () => {
+  it("yearly income: the top-up lands at months 12 and 24, growing with the income", () => {
+    const r = simulate(
+      withInputs({ topUp: 120_000, income: { amount: 300_000, frequency: "yearly", annualIncrease: 0.1 } }),
+      8_000_000,
+    );
+    expect(r.monthly[12].topUp).toBeCloseTo(120_000, 6);
+    expect(r.monthly[24].topUp).toBeCloseTo(132_000, 6);
+    expect(r.monthly.filter((p) => p.month % 12 !== 0).every((p) => p.topUp === 0)).toBe(true);
+    expect(r.monthly[12].income).toBeCloseTo(300_000, 6);
+    expect(r.topUp).toBe(120_000);
+  });
+  it("monthly income: a twelfth of it every month", () => {
+    const r = simulate(
+      withInputs({ topUp: 120_000, income: { amount: 20_000, frequency: "monthly", annualIncrease: 0.1 } }),
+      8_000_000,
+    );
+    for (let m = 1; m <= 12; m++) expect(r.monthly[m].topUp).toBeCloseTo(10_000, 6);
+    for (let m = 13; m <= 24; m++) expect(r.monthly[m].topUp).toBeCloseTo(11_000, 6);
+  });
+  it("absent means none, everywhere", () => {
+    const r = simulate(REFERENCE, 8_000_000);
+    expect(r.monthly.every((p) => p.topUp === 0)).toBe(true);
+    expect(r.topUp).toBe(0);
+    expect(r.totals.topUp).toBe(0);
+  });
+  it("is validated: negative is a problem on 'topUp'", () => {
+    expect(inputProblems(withInputs({ topUp: -1 })).map((p) => p.field)).toEqual(["topUp"]);
+  });
+});
+
+describe("simulate — gross flows", () => {
+  const loan: LoanInput = {
+    enabled: true, share: 1, lendingRatio: 1, flatRate: 0.12, years: 5, certificateRate: 0.11, release: "at-end",
+  };
+  it("records the gross up-front payment, the loan and the pledge at month 0 and in year 1", () => {
+    const r = simulate(
+      withInputs({
+        startingCapital: 20_000_000,
+        schedule: { downPayment: 0.2, planYears: 5, mode: "equal", frequency: "yearly" },
+        loan,
+      }),
+      5_000_000,
+    );
+    expect(r.monthly[0]).toMatchObject({ upFront: 1_000_000, loanReceived: 1_000_000, pledged: 1_000_000 });
+    expect(r.monthly[1]).toMatchObject({ upFront: 0, loanReceived: 0, pledged: 0 });
+    expect(r.years[0]).toMatchObject({ upFront: 1_000_000, loanReceived: 1_000_000, pledged: 1_000_000 });
+    expect(r.years[1]).toMatchObject({ upFront: 0, loanReceived: 0 });
+  });
+});
+
+describe("simulate — reconciliation", () => {
+  const LOAN_AT_END: LoanInput = {
+    enabled: true, share: 0.9, flatRate: 0.12, years: 5, lendingRatio: 1, certificateRate: 0.11, release: "at-end",
+  };
+  const rich = (over: Partial<CalculatorInputs>) => withInputs({ startingCapital: 30_000_000, ...over });
+  const cases: [string, CalculatorInputs, number][] = [
+    ["the reference", REFERENCE, 8_860_000],
+    ["plan + loan at-end", rich({ loan: LOAN_AT_END }), 8_000_000],
+    ["plan + loan gradual", rich({ loan: { ...LOAN_AT_END, release: "gradual" } }), 8_000_000],
+    [
+      "resale + loan",
+      rich({
+        purchase: { kind: "resale", discount: 0, resaleRemaining: 5_000_000, resaleYears: 4, resaleFrequency: "quarterly" },
+        loan: LOAN_AT_END,
+      }),
+      10_000_000,
+    ],
+    [
+      "100% now with a discount",
+      rich({
+        schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
+        purchase: { kind: "developer-plan", discount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+      }),
+      10_000_000,
+    ],
+    [
+      "a top-up on monthly income",
+      withInputs({ topUp: 200_000, income: { amount: 20_000, frequency: "monthly", annualIncrease: 0.05 } }),
+      8_000_000,
+    ],
+  ];
+  for (const [name, inputs, price] of cases) {
+    it(`${name}: every year row and the whole deal add up`, () => {
+      const r = simulate(inputs, price);
+      for (const y of r.years) {
+        const rhs =
+          y.opening + y.returns + y.certificateInterest + y.income + y.topUp + y.loanReceived + y.released
+          - y.upFront - y.pledged - y.installments - y.bankInstallments - y.extraCosts;
+        expect(Math.abs(rhs - y.closing)).toBeLessThanOrEqual(1e-6 * Math.max(1, Math.abs(y.closing)));
+      }
+      for (let i = 1; i < r.years.length; i++) expect(r.years[i].opening).toBe(r.years[i - 1].closing);
+      const t = r.totals;
+      const whole =
+        r.startingCapital + t.returns + t.certificateInterest + t.income + t.topUp + t.loanReceived + t.released
+        - t.upFront - t.pledged - t.installments - t.bankInstallments - t.extraCosts;
+      expect(Math.abs(whole - r.finalBalance)).toBeLessThanOrEqual(1e-6 * Math.max(1, Math.abs(r.finalBalance)));
+    });
+  }
+});
+
+describe("inputProblems — discount", () => {
+  it("rejects a discount of 100% and accepts a 100% down payment", () => {
+    const p = (discount: number) => ({
+      kind: "developer-plan" as const, discount, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" as const,
+    });
+    expect(inputProblems(withInputs({ purchase: p(1) })).map((x) => x.field)).toEqual(["purchase.discount"]);
+    expect(
+      inputProblems(
+        withInputs({
+          purchase: p(0.1),
+          schedule: { downPayment: 1, planYears: 8, mode: "equal", frequency: "yearly" },
+        }),
+      ),
+    ).toEqual([]);
   });
 });
