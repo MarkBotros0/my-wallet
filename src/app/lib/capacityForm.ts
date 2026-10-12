@@ -192,7 +192,7 @@ const grouped = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits
 const FREQ_WORD: Record<PaymentFrequency, string> = { yearly: "yearly", quarterly: "quarterly", monthly: "monthly" };
 
 /** The user's name for the plan, else a name made from its terms. */
-export function planName(plan: PlanForm, _currency?: string): string {
+export function planName(plan: PlanForm): string {
   const custom = plan.name.trim();
   if (custom) return custom;
   const loan = plan.loanEnabled ? " + loan" : "";

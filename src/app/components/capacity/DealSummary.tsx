@@ -2,7 +2,7 @@ import type { CalculatorInputs, SimulationResult } from "@/lib/capacity";
 import { describeDeal, type DealSentence, type DealTone } from "@/app/lib/dealText";
 import { formatMoney } from "@/app/lib/format";
 
-const TONE: Record<DealTone, string> = { in: "text-gain", out: "text-loss", held: "text-white" };
+const TONE: Record<DealTone, string> = { in: "text-gain", out: "text-loss", held: "text-white", neutral: "text-white" };
 
 /** One sentence from `dealText`: words, and amounts coloured by the money rule. */
 export function Sentence({ parts, currency }: { parts: DealSentence; currency: string }) {

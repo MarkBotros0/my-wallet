@@ -9,10 +9,23 @@ export const FLOW_TONE: Record<FlowTone, string> = {
   neutral: "text-white",
 };
 
-/** A net movement coloured by its sign — a subtotal is money in or out once added up. */
-export function signTone(n: number): string {
-  return n > 0.5 ? "text-gain" : n < -0.5 ? "text-loss" : "text-white/50";
-}
+/**
+ * A group's subtotal, coloured by `group.tone` — the direction of the money
+ * that really moved. Held money (the guarantee) is excluded from that, so a
+ * guarantee coming back never paints a bank subtotal green.
+ */
+export const SUBTOTAL_TONE: Record<FlowTone, string> = {
+  in: "text-gain",
+  out: "text-loss",
+  held: "text-white/70",
+  neutral: "text-white/70",
+};
+const BAR_TONE: Record<FlowTone, string> = {
+  in: "bg-gain/60",
+  out: "bg-loss/60",
+  held: "bg-white/30",
+  neutral: "bg-white/30",
+};
 
 /**
  * Where the money goes, read top to bottom: what you start with, one block
@@ -47,7 +60,9 @@ export default function MoneyFlowList({
   // The running total before and after each block, for the bridge bars.
   const spans: [number, number][] = [];
   let running = start;
-  for (const g of groups) {
+  // A block with nothing to list (a savings group holding only the start row) is skipped.
+  const shown = groups.filter((g) => g.rows.some((r) => r.key !== "start"));
+  for (const g of shown) {
     spans.push([running, running + g.subtotal]);
     running += g.subtotal;
   }
@@ -73,7 +88,7 @@ export default function MoneyFlowList({
       {bars && <div className="-mt-2 mb-3">{bar(0, start, "bg-white/35")}</div>}
 
       <ol className="space-y-2">
-        {groups.map((g, i) => {
+        {shown.map((g, i) => {
           const rows = g.rows.filter((r) => r.key !== "start");
           const held = rows.some((r) => r.tone === "held");
           const [from, to] = spans[i];
@@ -81,11 +96,11 @@ export default function MoneyFlowList({
             <li key={g.id} className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5">
               <div className="flex items-baseline justify-between gap-3">
                 <h4 className="text-[11px] font-semibold uppercase tracking-wider text-white/55">{g.title}</h4>
-                <span className={`font-mono text-sm font-semibold tabular-nums ${signTone(g.subtotal)}`}>
+                <span className={`font-mono text-sm font-semibold tabular-nums ${SUBTOTAL_TONE[g.tone]}`}>
                   {signed(g.subtotal)}
                 </span>
               </div>
-              {bars && bar(from, to, g.subtotal >= 0 ? "bg-gain/60" : "bg-loss/60")}
+              {bars && bar(from, to, BAR_TONE[g.tone])}
               <dl className="mt-2 space-y-1">
                 {rows.map((r) => (
                   <div key={r.key} className="flex items-baseline justify-between gap-3 text-xs">

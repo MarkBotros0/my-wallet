@@ -16,7 +16,8 @@ import {
  * them by the money rule.
  */
 
-export type DealTone = "in" | "out" | "held";
+/** `neutral`: an amount that compares two outcomes — no money moves, so no money colour. */
+export type DealTone = "in" | "out" | "held" | "neutral";
 export type DealPart = string | { amount: number; tone: DealTone };
 export type DealSentence = DealPart[];
 
@@ -38,7 +39,10 @@ export function describeDeal(inputs: CalculatorInputs, sim: SimulationResult): D
     purchase.kind === "resale"
       ? ["You pay the seller ", { amount: sim.upFront, tone: "out" }, " today"]
       : ["You pay the developer ", { amount: sim.upFront, tone: "out" }, ` today (${planNow(inputs)})`];
-  if (loan) {
+  if (loan && sim.upFrontFromFund < 0.5) {
+    // The bank pays it all: "0 from savings" would be a number saying nothing.
+    first.push(" — all of it from the bank.");
+  } else if (loan) {
     first.push(" — ", { amount: loan.amount, tone: "in" }, " from the bank, ", { amount: sim.upFrontFromFund, tone: "out" }, " from savings.");
   } else {
     first.push(", from savings.");
@@ -128,7 +132,6 @@ export function loanVerdict(_inputs: CalculatorInputs, comparison: Comparison, s
 /** The top-up a plan needs, in words. `annualIncrease` is the income's yearly raise (0 = flat). */
 export function topUpSentence(
   result: TopUpResult,
-  _currency: string,
   incomeFrequency: "monthly" | "yearly",
   annualIncrease = 0,
 ): DealSentence {
@@ -185,6 +188,6 @@ export function loanVerdictTopUp(cmp: { withLoan: TopUpResult; withoutLoan: TopU
     return { kind: "same", difference, ...why, headline: ["The loan does not change the top-up you need."] };
   }
   return difference > 0
-    ? { kind: "loan-better", difference, ...why, headline: ["Without the loan you'd add ", { amount: difference, tone: "out" }, " a year more."] }
-    : { kind: "no-loan-better", difference, ...why, headline: ["Without the loan you'd add ", { amount: -difference, tone: "in" }, " a year less."] };
+    ? { kind: "loan-better", difference, ...why, headline: ["Without the loan you'd add ", { amount: difference, tone: "neutral" }, " a year more."] }
+    : { kind: "no-loan-better", difference, ...why, headline: ["Without the loan you'd add ", { amount: -difference, tone: "neutral" }, " a year less."] };
 }

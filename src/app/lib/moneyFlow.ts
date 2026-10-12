@@ -28,7 +28,20 @@ export interface FlowGroup {
   id: FlowGroupId;
   title: string;
   rows: FlowRow[];
+  /** The full net of the rows, held ones included, so `start + Σ subtotals = end` reconciles. */
   subtotal: number;
+  /**
+   * The colour the subtotal wears: the direction of the money that really
+   * came in or went out — in/out rows only. The guarantee locked or returned
+   * is still the user's money, so it never turns a subtotal green or red.
+   */
+  tone: FlowTone;
+}
+
+/** The direction of a group's real money: Σ in/out rows, held excluded; under half a unit is no direction. */
+export function groupTone(rows: FlowRow[]): FlowTone {
+  const net = rows.reduce((s, r) => (r.tone === "in" || r.tone === "out" ? s + r.amount : s), 0);
+  return net >= 0.5 ? "in" : net <= -0.5 ? "out" : "neutral";
 }
 
 export function flowGroups(
@@ -40,7 +53,13 @@ export function flowGroups(
   const keep = (rows: FlowRow[]) => rows.filter((r) => r.amount !== 0);
   const group = (id: FlowGroupId, title: string, rows: FlowRow[], start?: FlowRow): FlowGroup => {
     const kept = keep(rows);
-    return { id, title, rows: start ? [start, ...kept] : kept, subtotal: kept.reduce((s, r) => s + r.amount, 0) };
+    return {
+      id,
+      title,
+      rows: start ? [start, ...kept] : kept,
+      subtotal: kept.reduce((s, r) => s + r.amount, 0),
+      tone: groupTone(kept),
+    };
   };
 
   const groups = [

@@ -4,7 +4,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import type { PurchaseKind, SavingsVehicle, YearSummary } from "@/lib/capacity";
 import { formatMoney, formatSignedMoney } from "@/app/lib/format";
 import { flowGroups, type FlowGroup, type FlowGroupId } from "@/app/lib/moneyFlow";
-import { FLOW_TONE, signTone } from "./MoneyFlowList";
+import { FLOW_TONE, SUBTOTAL_TONE } from "./MoneyFlowList";
 
 type Ctx = { vehicle: SavingsVehicle; kind: PurchaseKind; hasLoan: boolean };
 
@@ -30,7 +30,8 @@ const ORDER: FlowGroupId[] = ["savings", "added", "developer", "bank", "costs"];
  * and a button on the row opens its line items.
  *
  * Colour follows the money rule: rows are `gain` in, `loss` out, the
- * guarantee locked or returned neutral; a subtotal is coloured by its sign.
+ * guarantee locked or returned neutral; a subtotal is coloured by the money
+ * that really moved (`group.tone`), never by the guarantee.
  * Opening, closing and lowest are positions and stay neutral. A year whose
  * lowest balance dipped under the buffer is tinted `loss` — a real bad
  * outcome — and says so in words.
@@ -133,7 +134,7 @@ export default function YearTable({
                         aria-expanded={isOpen}
                         aria-controls={isOpen ? detailId : undefined}
                         aria-label={`Year ${y.year}${y.breached ? ", below your minimum" : ""} — ${isOpen ? "hide" : "show"} the details`}
-                        className="flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-white/80 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                        className="flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-white/80 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                       >
                         <svg
                           viewBox="0 0 16 16"
@@ -155,7 +156,7 @@ export default function YearTable({
                     {columns.map((id) => {
                       const g = groups.find((x) => x.id === id);
                       return (
-                        <td key={id} className={`px-2.5 py-2 text-right ${g ? signTone(g.subtotal) : ""}`}>
+                        <td key={id} className={`px-2.5 py-2 text-right ${g ? SUBTOTAL_TONE[g.tone] : ""}`}>
                           {g ? signed(g.subtotal) : dash}
                         </td>
                       );
@@ -194,7 +195,7 @@ function GroupLines({ group }: { group: FlowGroup }) {
     <dl className="mt-2">
       <div className="flex items-baseline justify-between gap-2">
         <dt className="text-[10px] font-semibold uppercase tracking-wider text-white/50">{group.title}</dt>
-        <dd className={`font-mono font-semibold tabular-nums ${signTone(group.subtotal)}`}>
+        <dd className={`font-mono font-semibold tabular-nums ${SUBTOTAL_TONE[group.tone]}`}>
           {formatSignedMoney(group.subtotal, "")}
         </dd>
       </div>

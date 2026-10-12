@@ -75,6 +75,15 @@ describe("describeDeal", () => {
     expect(text(describeDeal(l, simulate(l, 10_000_000))[0])).toBe("You pay the developer # today (10% of the price) — # from the bank, # from savings.");
   });
 
+  it("says the bank pays it all instead of '0 from savings'", () => {
+    const all = { ...RESALE_DEAL, loan: { ...RESALE_DEAL.loan!, share: 1 } };
+    const sim = simulate(all, 10_000_000);
+    expect(sim.upFrontFromFund).toBeLessThan(0.5);
+    const first = describeDeal(all, sim)[0];
+    expect(text(first)).toBe("You pay the seller # today — all of it from the bank.");
+    expect(amounts(first)).toEqual([{ amount: 10_000_000, tone: "out" }]);
+  });
+
   it("says the pledge comes back bit by bit on a gradual release", () => {
     const g = { ...RESALE_DEAL, loan: { ...RESALE_DEAL.loan!, release: "gradual" as const } };
     expect(text(describeDeal(g, simulate(g, 10_000_000))[1])).toMatch(/comes back bit by bit as you repay, over 5 years\.$/);
@@ -115,26 +124,26 @@ describe("topUpSentence", () => {
   const r = (topUp: number | null, blocker: TopUpResult["blocker"] = null, sim: SimulationResult = base): TopUpResult => ({ topUp, simulation: sim, blocker });
 
   it("says no top-up is needed at 0", () => {
-    expect(text(topUpSentence(r(0), "EGP", "yearly"))).toBe("Your savings and income already carry this plan — no top-up needed.");
+    expect(text(topUpSentence(r(0), "yearly"))).toBe("Your savings and income already carry this plan — no top-up needed.");
   });
   it("gives a yearly amount, and the monthly part only for monthly income", () => {
-    expect(text(topUpSentence(r(240_000), "EGP", "yearly"))).toBe("Add # a year on top of your income.");
-    const m = topUpSentence(r(240_000), "EGP", "monthly");
+    expect(text(topUpSentence(r(240_000), "yearly"))).toBe("Add # a year on top of your income.");
+    const m = topUpSentence(r(240_000), "monthly");
     expect(text(m)).toBe("Add # a year on top of your income (#/month).");
     expect(amounts(m)).toEqual([{ amount: 240_000, tone: "in" }, { amount: 20_000, tone: "in" }]);
   });
   it("mentions the raise when income grows", () => {
-    expect(text(topUpSentence(r(240_000), "EGP", "yearly", 0.05))).toBe("Add # a year on top of your income, growing with your raise.");
+    expect(text(topUpSentence(r(240_000), "yearly", 0.05))).toBe("Add # a year on top of your income, growing with your raise.");
   });
   it("explains a day-one blocker with the shortfall", () => {
     const sim = { ...base, firstBreach: { month: 0, shortfall: 750_000 } };
-    const s = topUpSentence(r(null, "day-one", sim), "EGP", "yearly");
+    const s = topUpSentence(r(null, "day-one", sim), "yearly");
     expect(text(s)).toBe("No top-up can fix this: on day one you need # more savings than you have.");
     expect(amounts(s)).toEqual([{ amount: 750_000, tone: "out" }]);
   });
   it("explains a too-early blocker with the month", () => {
     const sim = { ...base, firstBreach: { month: 6, shortfall: 1 } };
-    expect(text(topUpSentence(r(null, "too-early", sim), "EGP", "yearly"))).toBe(
+    expect(text(topUpSentence(r(null, "too-early", sim), "yearly"))).toBe(
       "No top-up can fix this: a payment in month 6 comes before the first top-up arrives.",
     );
   });
@@ -150,13 +159,14 @@ describe("loanVerdictTopUp", () => {
     expect(x.kind).toBe("loan-better");
     expect(x.difference).toBe(300_000);
     expect(text(x.headline)).toBe("Without the loan you'd add # a year more.");
-    expect(amounts(x.headline)).toEqual([{ amount: 300_000, tone: "out" }]);
+    expect(amounts(x.headline)).toEqual([{ amount: 300_000, tone: "neutral" }]);
     expect(x.interest).toBeCloseTo(5_400_000, 4);
   });
   it("says you'd add less without the loan", () => {
     const x = v(400_000, 100_000);
     expect(x.kind).toBe("no-loan-better");
     expect(text(x.headline)).toBe("Without the loan you'd add # a year less.");
+    expect(amounts(x.headline)).toEqual([{ amount: 300_000, tone: "neutral" }]);
   });
   it("calls equal top-ups the same", () => {
     expect(v(100_000, 100_000).kind).toBe("same");

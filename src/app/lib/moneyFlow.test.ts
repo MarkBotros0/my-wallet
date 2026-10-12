@@ -89,3 +89,48 @@ describe("flowGroups", () => {
     expect(sum).toBeCloseTo(y.closing, 4);
   });
 });
+
+describe("flowGroups per year, with loans", () => {
+  const RESALE = { kind: "resale" as const, discount: 0, resaleRemaining: 5_000_000, resaleYears: 4, resaleFrequency: "quarterly" as const };
+  const yearCases: [string, CalculatorInputs, number][] = [
+    ["resale + gradual release", rich({ purchase: RESALE, loan: { ...LOAN, release: "gradual" } }), 10_000_000],
+    ["developer + at-end, lending ratio 0.9", rich({ loan: { ...LOAN, lendingRatio: 0.9 } }), 8_000_000],
+  ];
+  for (const [name, inputs, price] of yearCases) {
+    it(`${name}: opening + subtotals = closing, every year`, () => {
+      const sim = simulate(inputs, price);
+      const ctx = { vehicle: "fund" as const, kind: inputs.purchase?.kind ?? ("developer-plan" as const), hasLoan: true };
+      expect(sim.years.length).toBeGreaterThan(1);
+      for (const y of sim.years) {
+        const sum = flowGroups(y, ctx).reduce((s, g) => s + g.subtotal, y.opening);
+        expect(Math.abs(sum - y.closing)).toBeLessThanOrEqual(1e-6 * Math.max(1, Math.abs(y.closing)));
+      }
+    });
+  }
+});
+
+describe("group tone", () => {
+  it("follows only the money that moved: a returned guarantee never turns the bank group green", () => {
+    const inputs = rich({ loan: LOAN });
+    const sim = simulate(inputs, 8_000_000);
+    const back = sim.years.find((y) => y.released > 0)!;
+    const bank = flowGroups(back, { vehicle: "fund", kind: "developer-plan", hasLoan: true }).find((g) => g.id === "bank")!;
+    const real = bank.rows.filter((r) => r.tone !== "held").reduce((s, r) => s + r.amount, 0);
+    // The guarantee coming back outweighs the year's installments, so the full net is positive…
+    expect(bank.subtotal).toBeGreaterThan(0);
+    expect(real).toBeLessThan(0);
+    // …but the colour follows the bank installments and the interest only.
+    expect(bank.tone).toBe("out");
+  });
+
+  it("is neutral when only held money moved, and follows the sign otherwise", () => {
+    const g = flowGroups(
+      { returns: 0, certificateInterest: 0, income: 0, topUp: 0, loanReceived: 0, released: 1_000, upFront: 0, pledged: 0, installments: 0, bankInstallments: 0, extraCosts: 0 },
+      { vehicle: "fund", kind: "developer-plan", hasLoan: true },
+    );
+    expect(g.map((x) => [x.id, x.tone])).toEqual([["bank", "neutral"]]);
+    const y = simulate(REFERENCE, 8_860_000).years[0];
+    const tones = Object.fromEntries(flowGroups(y, { vehicle: "fund", kind: "developer-plan", hasLoan: false }).map((x) => [x.id, x.tone]));
+    expect(tones).toMatchObject({ savings: "in", developer: "out" });
+  });
+});
