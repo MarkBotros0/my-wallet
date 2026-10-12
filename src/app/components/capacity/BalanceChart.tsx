@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { CalculatorInputs, MonthPoint, SimulationResult } from "@/lib/capacity";
+import { purchaseOf, type CalculatorInputs, type MonthPoint, type SimulationResult } from "@/lib/capacity";
 import { placeLabels, textWidth, type LabelCandidate, type Obstacle } from "@/app/lib/chartLabels";
 import { formatCompact, formatMoney, formatSignedMoney } from "@/app/lib/format";
 import { niceTicks } from "@/app/lib/ticks";
@@ -68,7 +68,8 @@ export default function BalanceChart({
     const months = points.length - 1;
     const balances = points.map((p) => p.balance);
     const dataMin = Math.min(0, buffer, ...balances);
-    const dataMax = Math.max(buffer, capital, keepTarget, ...balances);
+    const totals = points.map((p) => p.balance + p.held);
+    const dataMax = Math.max(buffer, capital, keepTarget, ...balances, ...totals);
     const { ticks, lo, hi } = niceTicks(dataMin, dataMax, 5);
     const plotW = Math.max(0, width - PAD.left - PAD.right);
     const plotH = HEIGHT - PAD.top - PAD.bottom;
@@ -78,13 +79,19 @@ export default function BalanceChart({
     // The line starts at the capital and drops straight down by the down
     // payment before the plan's first month — the start IS the down payment.
     const path = [`M${pt(0, capital)}`, ...points.map((p) => `L${pt(p.month, p.balance)}`)].join(" ");
+    // Money locked with the bank is not spendable: the accent line is the
+    // spendable fund, and this muted one adds the pledge on top.
+    const hasHeld = points.some((p) => p.held > 0);
+    const heldPath = hasHeld
+      ? [`M${pt(0, capital)}`, ...points.map((p) => `L${pt(p.month, p.balance + p.held)}`)].join(" ")
+      : null;
     const area = `${path} L${pt(months, lo)} L${pt(0, lo)} Z`;
     const years = months / 12;
     const labelEvery = years > 10 ? 2 : 1;
-    return { months, ticks, lo, hi, plotW, plotH, x, y, path, area, years, labelEvery };
+    return { months, ticks, lo, hi, plotW, plotH, x, y, path, heldPath, area, years, labelEvery };
   }, [points, buffer, capital, keepTarget, width]);
 
-  const { months, ticks, lo, hi, plotW, plotH, x, y, path, area, years, labelEvery } = geometry;
+  const { months, ticks, lo, hi, plotW, plotH, x, y, path, heldPath, area, years, labelEvery } = geometry;
 
   const annotations = useMemo(() => {
     const xEnd = x(months);
@@ -233,7 +240,8 @@ export default function BalanceChart({
       { x: x(0) + 10, y: y(capital) - 8, anchor: "start", v: "above" },
       { x: x(0) + 10, y: y(capital), anchor: "start", v: "centre" },
     ];
-    const down = sim.downPayment > 0 ? ` · down payment −${short(sim.downPayment)}` : "";
+    const out = sim.upFrontFromFund + (sim.loan?.pledge ?? 0);
+    const down = out > 0 ? ` · ${sim.loan ? "paid + locked" : "down payment"} −${short(out)}` : "";
     note("start", `Start ${short(capital)}${down}`, 3, startSpots);
     // No room for the pair: the capital alone still names the start.
     if (down) note("start-short", `Start ${short(capital)}`, 3.5, startSpots);
@@ -266,12 +274,30 @@ export default function BalanceChart({
     // 6. The first installment, once — every later cliff is the same thing.
     const first = points.findIndex((p) => p.installment > 0);
     if (first > 0) {
-      const per =
-        inputs.schedule.frequency === "monthly" ? " a month" : inputs.schedule.frequency === "quarterly" ? " a quarter" : "";
+      const p = purchaseOf(inputs);
+      const freq = p.kind === "resale" ? p.resaleFrequency : inputs.schedule.frequency;
+      const per = freq === "monthly" ? " a month" : freq === "quarterly" ? " a quarter" : "";
       note("installment", `Installment ${short(points[first].installment)}${per}`, 8, cliffSpots(first), {
         muted: false,
         ...cliffLeader(first),
       });
+    }
+
+    // 7. The locked certificates: name the muted line once at its START —
+    //    it meets the accent line when the pledge comes back, so its end
+    //    has nothing to label (the spec's "at its end" adjusted for this),
+    //    and mark the month they all come back.
+    if (sim.loan && sim.loan.pledge > 0) {
+      const first = points[1] ?? points[0];
+      note("held", "incl. locked certificates", 9, [
+        { x: x(first.month) + 10, y: y(first.balance + first.held) - 6, anchor: "start", v: "above" },
+        { x: x(first.month) + 10, y: y(first.balance + first.held) + 6, anchor: "start", v: "below" },
+      ], { muted: true });
+      if (inputs.loan?.release === "at-end" && sim.loan.months <= months) {
+        const m = sim.loan.months;
+        markers.push({ id: "release", x: x(m), y: y(points[m].balance), fill: "rgba(255,255,255,0.7)" });
+        note("release", `Certificates back +${short(sim.loan.pledge)}`, 6, cliffSpots(m), { muted: false, ...cliffLeader(m) });
+      }
     }
 
     // A label must clear the data too: the line, sampled every few pixels so
@@ -348,9 +374,11 @@ export default function BalanceChart({
           width={width}
           height={HEIGHT}
           role="img"
-          aria-label={`Fund balance over ${years} years. Starts at ${money(capital)} with a down payment of ${money(
-            sim.downPayment,
-          )}, lowest ${money(sim.minBalance)}, ends at ${money(sim.finalBalance)}. Safety buffer ${money(buffer)}${
+          aria-label={`Spendable fund over ${years} years. Starts at ${money(capital)}; ${
+            sim.loan
+              ? `${money(sim.upFrontFromFund)} paid up front and ${money(sim.loan.pledge)} locked as the bank's guarantee`
+              : `a down payment of ${money(sim.downPayment)}`
+          }; lowest ${money(sim.minBalance)}, ends at ${money(sim.finalBalance)}. Safety buffer ${money(buffer)}${
             keepTarget > 0 ? `, keep target ${money(keepTarget)}` : ""
           }.`}
           tabIndex={0}
@@ -428,6 +456,9 @@ export default function BalanceChart({
 
           {/* Area wash + the balance line. */}
           <path d={area} fill={`url(#${gradientId})`} />
+          {heldPath && (
+            <path d={heldPath} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={1.25} strokeLinejoin="round" />
+          )}
           <path d={path} fill="none" stroke={ACCENT} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           {breached && (
             <path
@@ -545,22 +576,39 @@ interface Flow {
   label: string;
   amount: number;
   /** Money in (`gain`) or out (`loss`) — the colour rule, nothing else. */
-  direction: "in" | "out";
+  direction: "in" | "out" | "held";
+  /** +1 adds to the spendable fund, −1 takes from it. */
+  sign: 1 | -1;
 }
 
 /** The month's movements for the tooltip, in the order the engine applies them. */
 function flowsFor(point: MonthPoint, inputs: CalculatorInputs, sim: SimulationResult): Flow[] {
   if (point.month === 0) {
-    return sim.downPayment > 0 ? [{ label: "Down payment", amount: sim.downPayment, direction: "out" }] : [];
+    const flows: Flow[] = [];
+    if (sim.upFrontFromFund > 0)
+      flows.push({ label: sim.loan ? "Paid up front" : "Down payment", amount: sim.upFrontFromFund, direction: "out", sign: -1 });
+    if (sim.loan && sim.loan.pledge > 0)
+      flows.push({ label: "Locked as guarantee", amount: sim.loan.pledge, direction: "held", sign: -1 });
+    return flows;
   }
   const flows: Flow[] = [];
-  if (point.returns > 0) flows.push({ label: "Return", amount: point.returns, direction: "in" });
-  if (point.income > 0) flows.push({ label: "Income", amount: point.income, direction: "in" });
-  if (point.installment > 0) flows.push({ label: "Installment", amount: point.installment, direction: "out" });
+  if (point.returns > 0) flows.push({ label: "Return", amount: point.returns, direction: "in", sign: 1 });
+  if (point.income > 0) flows.push({ label: "Income", amount: point.income, direction: "in", sign: 1 });
+  if (point.installment > 0)
+    flows.push({
+      label: sim.loan ? "Developer" : "Installment",
+      amount: point.installment,
+      direction: "out",
+      sign: -1,
+    });
   if (point.extraCost > 0) {
     const names = costNamesAt(inputs, point.month);
-    flows.push({ label: names.length ? names.join(" + ") : "Extra cost", amount: point.extraCost, direction: "out" });
+    flows.push({ label: names.length ? names.join(" + ") : "Extra cost", amount: point.extraCost, direction: "out", sign: -1 });
   }
+  if (point.certificateInterest > 0)
+    flows.push({ label: "Certificates", amount: point.certificateInterest, direction: "in", sign: 1 });
+  if (point.bankInstallment > 0) flows.push({ label: "Bank", amount: point.bankInstallment, direction: "out", sign: -1 });
+  if (point.released > 0) flows.push({ label: "Released", amount: point.released, direction: "held", sign: 1 });
   return flows;
 }
 
@@ -590,6 +638,9 @@ function Tooltip({
       <div className={`font-mono text-sm ${under ? "text-loss" : "text-white"}`}>
         {formatMoney(point.balance, currency)}
       </div>
+      {point.held > 0 && (
+        <div className="text-[11px] text-white/40">+ {formatMoney(point.held, currency)} locked</div>
+      )}
       <div className="mt-0.5 text-[11px] text-white/50">
         {point.month === 0 ? "After down payment" : `Month ${point.month} · Year ${year}`}
         {under && <span className="text-loss"> · below buffer</span>}
@@ -599,8 +650,10 @@ function Tooltip({
           {flows.map((f) => (
             <div key={f.label} className="flex justify-between gap-4">
               <dt className="text-white/50">{f.label}</dt>
-              <dd className={`font-mono tabular-nums ${f.direction === "in" ? "text-gain" : "text-loss"}`}>
-                {formatSignedMoney(f.direction === "in" ? f.amount : -f.amount, "")}
+              <dd className={`font-mono tabular-nums ${
+                f.direction === "in" ? "text-gain" : f.direction === "out" ? "text-loss" : "text-white/70"
+              }`}>
+                {formatSignedMoney(f.sign * f.amount, "")}
               </dd>
             </div>
           ))}

@@ -32,6 +32,7 @@ export default function YearTable({
   const dash = <span className="text-white/30">—</span>;
   const inflow = (n: number) => (n === 0 ? dash : <span className="text-gain/80">+{money(n)}</span>);
   const outflow = (n: number) => (n === 0 ? dash : <span className="text-loss/80">−{money(n)}</span>);
+  const hasLoan = years.some((y) => y.bankInstallments > 0 || y.pledged > 0);
   const lowestCell = (y: YearSummary) => (
     <span className={y.breached ? "font-semibold text-loss" : ""}>{money(y.lowest)}</span>
   );
@@ -41,15 +42,18 @@ export default function YearTable({
       <p className="mb-3 text-[11px] text-white/40">
         All figures in {currency}. Lowest is the lowest end-of-month balance in that year — year 1 includes the
         balance right after the down payment; the buffer is {formatMoney(buffer, currency)}.
+        {hasLoan &&
+          " Locked is the pledge the bank holds — not spendable, so the buffer does not count it; Closing is the spendable fund."}
       </p>
 
       {/* Mobile: one card per year, read top to bottom */}
       <div className="space-y-2 md:hidden">
         {years.map((y) => {
           const paid = y.downPayment + y.installments + y.extraCosts;
-          // What the returns and income did not cover came out of savings;
-          // when they covered more than was paid, the surplus stayed in.
-          const fromSavings = paid - y.returns - y.income;
+          const bankFlows = y.bankInstallments + y.certificateInterest + y.pledged + y.released;
+          // What returns, income and certificate interest did not cover came
+          // out of savings; locking and releasing the pledge is shown on its own.
+          const fromSavings = paid + y.bankInstallments - y.returns - y.income - y.certificateInterest;
           return (
             <div
               key={y.year}
@@ -70,7 +74,7 @@ export default function YearTable({
                   tone="strong"
                   className="mt-1.5"
                 />
-                {y.downPayment > 0 && <Row label="Down payment" value={outflow(y.downPayment)} />}
+                {y.downPayment > 0 && <Row label="Paid up front" value={outflow(y.downPayment)} />}
                 {y.installments > 0 && <Row label="Installments" value={outflow(y.installments)} />}
                 {y.extraCosts > 0 && <Row label="Extra costs" value={outflow(y.extraCosts)} />}
 
@@ -81,6 +85,16 @@ export default function YearTable({
                   label={fromSavings >= 0 ? "From savings" : "Left in savings"}
                   value={money(Math.abs(fromSavings))}
                 />
+
+                {bankFlows > 0 && (
+                  <>
+                    <Row label="Bank" tone="strong" className="mt-1.5" />
+                    {y.bankInstallments > 0 && <Row label="Bank installments" value={outflow(y.bankInstallments)} />}
+                    {y.certificateInterest > 0 && <Row label="Certificate interest" value={inflow(y.certificateInterest)} />}
+                    {y.pledged > 0 && <Row label="Locked as guarantee" value={money(y.pledged)} />}
+                    {y.released > 0 && <Row label="Released" value={money(y.released)} />}
+                  </>
+                )}
 
                 <Row
                   label="Closing"
@@ -102,11 +116,18 @@ export default function YearTable({
             <tr className="border-b border-white/10 text-left uppercase tracking-wide text-white/40">
               <th className="px-3 py-2.5 font-medium">Year</th>
               <th className="px-3 py-2.5 text-right font-medium">Opening</th>
-              <th className="px-3 py-2.5 text-right font-medium">Down payment</th>
+              <th className="px-3 py-2.5 text-right font-medium">Up front</th>
               <th className="px-3 py-2.5 text-right font-medium">Installments</th>
               <th className="px-3 py-2.5 text-right font-medium">Extra costs</th>
               <th className="px-3 py-2.5 text-right font-medium">Returns</th>
               <th className="px-3 py-2.5 text-right font-medium">Income</th>
+              {hasLoan && (
+                <>
+                  <th className="px-3 py-2.5 text-right font-medium">Bank</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Certificates</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Locked</th>
+                </>
+              )}
               <th className="px-3 py-2.5 text-right font-medium">Closing</th>
               <th className="px-3 py-2.5 text-right font-medium">Lowest</th>
             </tr>
@@ -129,6 +150,15 @@ export default function YearTable({
                 <td className="px-3 py-2 text-right">{outflow(y.extraCosts)}</td>
                 <td className="px-3 py-2 text-right">{inflow(y.returns)}</td>
                 <td className="px-3 py-2 text-right">{inflow(y.income)}</td>
+                {hasLoan && (
+                  <>
+                    <td className="px-3 py-2 text-right">{outflow(y.bankInstallments)}</td>
+                    <td className="px-3 py-2 text-right">{inflow(y.certificateInterest)}</td>
+                    <td className="px-3 py-2 text-right text-white/70">
+                      {y.pledged > 0 ? money(y.pledged) : y.released > 0 ? `−${money(y.released)}` : dash}
+                    </td>
+                  </>
+                )}
                 <td className="px-3 py-2 text-right text-white">{money(y.closing)}</td>
                 <td className="px-3 py-2 text-right text-white/80">{lowestCell(y)}</td>
               </tr>
