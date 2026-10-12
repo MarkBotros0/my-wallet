@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { DEFAULT_FORM, normalizeForm, type CapacityForm } from "./capacityForm";
+import { DEFAULT_FORM, normalizeForm, type CapacityForm, type MoneyForm, type PlanForm } from "./capacityForm";
 
 /**
  * The calculator remembers what you last typed — per device, in localStorage,
@@ -56,4 +56,36 @@ export function useCapacityForm(): [CapacityForm, (patch: Partial<CapacityForm>)
   }, []);
   const reset = useCallback(() => write(DEFAULT_FORM), []);
   return [form, update, reset];
+}
+
+/**
+ * `update` is shallow, so editing one field of the money block or of one plan
+ * goes through these: each reads the CURRENT snapshot (not a render's copy, so
+ * two quick edits never undo each other) and spreads the patch in place.
+ */
+export function updateMoney(patch: Partial<MoneyForm>) {
+  const form = getSnapshot();
+  write({ ...form, money: { ...form.money, ...patch } });
+}
+
+/** Any edit to a plan means the examples are now the user's own. */
+export function updatePlan(id: string, patch: Partial<PlanForm>) {
+  const form = getSnapshot();
+  write({
+    ...form,
+    plans: form.plans.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    examplesEdited: true,
+  });
+}
+
+/** Replace the plan list (add, duplicate, delete), keeping the selection on a plan that exists. */
+export function setPlans(plans: PlanForm[], selectedPlanId?: string) {
+  const form = getSnapshot();
+  const wanted = selectedPlanId ?? form.selectedPlanId;
+  write({
+    ...form,
+    plans,
+    selectedPlanId: plans.some((p) => p.id === wanted) ? wanted : plans[0].id,
+    examplesEdited: true,
+  });
 }

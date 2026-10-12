@@ -62,15 +62,16 @@ export function useFormErrors(): FormErrors {
   return ctx;
 }
 
-/** The DOM id of a field's input, so the summary can jump to it. */
+/** The DOM id of a field's input, so "Fix" can jump to it. Dots are kept out of ids so they stay valid CSS selectors. */
 export function fieldId(field: FormField): string {
-  return `capacity-${field}`;
+  return `capacity-${field.replaceAll(".", "-")}`;
 }
 
 /** Scroll a field into the middle of the screen and put the cursor in it. */
 export function focusField(field: FormField) {
   // A problem with the set of year fields is fixed in the first of them.
-  const el = document.getElementById(fieldId(field === "yearPcts" ? "year-0" : field));
+  const target: FormField = field.endsWith(".yearPcts") ? (field.replace(/yearPcts$/, "year-0") as FormField) : field;
+  const el = document.getElementById(fieldId(target));
   if (!el) return;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   el.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });

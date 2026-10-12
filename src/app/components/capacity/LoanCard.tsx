@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { decliningRateFromFlat, type LoanSummary, type PledgeRelease } from "@/lib/capacity";
-import type { CapacityForm } from "@/app/lib/capacityForm";
+import type { PlanForm } from "@/app/lib/capacityForm";
 import { formatMoney, formatPct } from "@/app/lib/format";
 import { parseNumber } from "@/app/lib/numbers";
 import { CheckRow, Segmented } from "../ui";
@@ -18,33 +18,35 @@ import { CalcField, useFormErrors } from "./formErrors";
  * which is what makes a flat rate stop being confusing.
  */
 export default function LoanCard({
-  form,
-  update,
+  plan: form,
+  onChange: update,
   loan,
   atPrice,
   currency,
 }: {
-  form: CapacityForm;
-  update: (patch: Partial<CapacityForm>) => void;
-  /** The loan at the shown price; null before there is a result. */
+  plan: PlanForm;
+  onChange: (patch: Partial<PlanForm>) => void;
+  /** The loan at the plan's answer; null before there is one. */
   loan: LoanSummary | null;
-  atPrice: "max" | "test";
+  /** Which price `loan` was worked out at: the plan's maximum, or the price entered (top-up mode). */
+  atPrice: "max" | "price";
   currency: string;
 }) {
   const { errorFor } = useFormErrors();
   const [termsOpen, setTermsOpen] = useState(false);
   const money = (n: number) => formatMoney(n, currency);
-  const at = atPrice === "max" ? "at the maximum" : "at the price you're checking";
+  const at = atPrice === "max" ? "at this plan's maximum" : "at the price you entered";
+  const f = (key: keyof PlanForm) => `plan.${form.id}.${key}` as const;
 
   const flat = parseNumber(form.loanFlatRatePct);
   const years = parseNumber(form.loanYears);
-  const cert = parseNumber(form.certificateRatePct);
+  const cert = parseNumber(form.loanCertificateRatePct);
   const declining =
     flat !== null && years !== null && years >= 1 && flat >= 0 ? decliningRateFromFlat(flat / 100, years) : null;
   const yearsText = years === 1 ? "1 year" : `${form.loanYears} years`;
   const ratio = form.lendingRatioPct.trim() || "—";
   const releaseText = form.pledgeRelease === "at-end" ? "when the loan is paid off" : "bit by bit as you repay";
-  const termsForcedOpen = errorFor("lendingRatioPct") !== undefined;
+  const termsForcedOpen = errorFor(f("lendingRatioPct")) !== undefined;
 
   return (
     <div className="space-y-4">
@@ -64,7 +66,7 @@ export default function LoanCard({
           )}
 
           <CalcField
-            field="loanSharePct"
+            field={f("loanSharePct")}
             label="Borrow"
             hint={loan ? `= ${money(loan.amount)} ${at}.` : "Of what you pay up front; the rest comes from savings."}
             value={form.loanSharePct}
@@ -76,7 +78,7 @@ export default function LoanCard({
           <div>
             <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
               <CalcField
-                field="loanFlatRatePct"
+                field={f("loanFlatRatePct")}
                 label="Flat rate"
                 value={form.loanFlatRatePct}
                 onChange={(v) => update({ loanFlatRatePct: v, loanRatesEdited: true })}
@@ -84,7 +86,7 @@ export default function LoanCard({
                 placeholder="12"
               />
               <CalcField
-                field="loanYears"
+                field={f("loanYears")}
                 label="Years"
                 value={form.loanYears}
                 onChange={(v) => update({ loanYears: v })}
@@ -110,15 +112,15 @@ export default function LoanCard({
 
           <div>
             <CalcField
-              field="certificateRatePct"
-              label="Certificate rate"
+              field={f("loanCertificateRatePct")}
+              label="Pledged certificates pay"
               hint={
                 loan && cert !== null
                   ? `Your ${money(loan.pledge)} in certificates pays you ${money((loan.pledge * cert) / 100 / 12)} / month while it is pledged (${at}).`
                   : "What your certificates pay a year, after tax."
               }
-              value={form.certificateRatePct}
-              onChange={(v) => update({ certificateRatePct: v, loanRatesEdited: true })}
+              value={form.loanCertificateRatePct}
+              onChange={(v) => update({ loanCertificateRatePct: v, loanRatesEdited: true })}
               suffix="% a year"
               placeholder="11"
             />
@@ -150,7 +152,7 @@ export default function LoanCard({
             </summary>
             <div className="space-y-4 border-t border-white/10 px-3 py-3">
               <CalcField
-                field="lendingRatioPct"
+                field={f("lendingRatioPct")}
                 label="Bank lends"
                 hint="Most banks lend 90–100%. Your pledge is the loan divided by this."
                 value={form.lendingRatioPct}

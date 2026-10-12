@@ -1,787 +1,265 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import {
-  compare,
-  maxFeasiblePrice,
-  purchaseOf,
-  sensitivity,
-  simulate,
-  type Comparison,
-  type IncomeFrequency,
-  type PurchaseKind,
-  type SimulationResult,
-} from "@/lib/capacity";
-import { PLAN_FIELDS, parseForm, type CapacityForm, type FormError, type FormField } from "@/app/lib/capacityForm";
+import { useState } from "react";
+import { planName, planTerms, type FormField, type Mode, type Step } from "@/app/lib/capacityForm";
 import { useCapacityForm } from "@/app/lib/capacityFormStore";
-import { SECTIONS, sectionOf, sectionSummary, type SectionId } from "@/app/lib/capacitySections";
-import { formatMoney, formatPct } from "@/app/lib/format";
-import BalanceChart from "./BalanceChart";
-import DealSummary from "./DealSummary";
-import { CalcField, FormErrorsProvider, fieldId, focusField, useFormErrors, useVisibleErrors } from "./formErrors";
-import LoanCard from "./LoanCard";
-import LoanComparison from "./LoanComparison";
-import LiveResult, { DesktopResultBar, useScrolledPast } from "./LiveResult";
-import ResultTabs, { tabPanelProps, type ResultTab } from "./ResultTabs";
-import PurchasePicker, { ResaleFields } from "./PurchasePicker";
-import RateInput from "./RateInput";
-import ScheduleEditor from "./ScheduleEditor";
-import Section from "./Section";
-import SensitivityTable from "./SensitivityTable";
-import YearTable from "./YearTable";
-import { Card, Field, FieldError, Segmented, Stat, useFieldState } from "../ui";
+import { isBlankPrice, planAnswer, realErrors } from "@/app/lib/planAnswer";
+import { usePlanResults } from "@/app/lib/usePlanResults";
+import { FormErrorsProvider, focusField, useVisibleErrors } from "./formErrors";
+import LiveResult, { DesktopAnswer } from "./LiveResult";
+import MoneyStep from "./MoneyStep";
+import PlanCard from "./PlanCard";
+import PlansStep from "./PlansStep";
+import StepBar from "./StepBar";
+import { Segmented } from "../ui";
+
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** Which step holds a field: the money block is step ①, every plan field step ②. */
+function stepOf(field: FormField): Step {
+  return field.startsWith("money.") ? 1 : 2;
+}
+
+/** `plan.<id>.<key>` → `<id>`. */
+function planOf(field: FormField): string | null {
+  return field.startsWith("plan.") ? field.slice(5, field.indexOf(".", 5)) : null;
+}
 
 /**
- * Installment buying capacity — the page.
+ * The Real Estate calculator — three steps instead of one long form.
  *
- * Inputs on the left (stacked above on a phone), results on the right, and
- * neither is one long scroll. The inputs are five folding sections, one open
- * at a time, each closed row carrying a one-line summary from
- * `capacitySections.ts`; the results are four tabs (Answer, Over time, Year
- * by year, What if), only the active panel rendered. The engine is pure and
- * fast (a plan is at most 180 months; the solver probes a few hundred
- * prices), so everything recomputes live as the user types.
+ * ① Your money (entered once) → ② Plans (the ways of buying, each answering
+ * live) → ③ Compare. Above the steps, one question: find the most I can pay
+ * ("Max price") or, for prices I already have, how much I would need to add
+ * each year ("Yearly top-up"). Everything persists per device through
+ * `useCapacityForm`, the step and the selected plan included.
  *
- * When the form does not parse, every problem is shown under its own field
- * and listed on the Answer tab — each item jumps to the field — while the
- * last result that DID compute stays on screen, dimmed, so clearing a field
- * to retype it does not blank the page. Every "go to field" (the summary,
- * the phone strip, the desktop bar) goes through `reveal(field)`, which opens
- * the section (or the What if tab) that holds the field before focusing it;
- * a closed section with a blocking error wears a red dot. On a phone a
- * sticky strip under the nav carries the answer (or the error count) down
- * the form; on a desktop a condensed bar does the same once the tab strip
- * has scrolled away. From `xl:` the What if tab puts "test a price" beside
- * the sensitivity table.
+ * Errors: `parseForm` says WHAT, each field shows it beneath itself (WHEN is
+ * `useVisibleErrors`), a step holding a problem wears a red dot, and the
+ * sticky answer — a strip under the nav on a phone, the end of the sticky
+ * step header on a desktop — counts the problems that stop the selected
+ * plan and its Fix goes to the step, opens the plan, and focuses the field.
+ * A blank price in top-up mode is not an error: it is asked for in words.
  */
 export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
-  const [detailsFor, setDetailsFor] = useState<"max" | "test">("max");
-  const [openSection, setOpenSection] = useState<SectionId | null>("buy");
-  const [planOpen, setPlanOpen] = useState(false);
-  const [tab, setTab] = useState<ResultTab>("answer");
-  const headlineRef = useRef<HTMLDivElement | null>(null);
-  const pastHeadline = useScrolledPast(headlineRef);
+  const { parsed, results, best } = usePlanResults(form);
+  const [openPlan, setOpenPlan] = useState<string | null>(null);
+  const currency = form.money.currency.trim().toUpperCase() || "EGP";
 
-  const parsed = useMemo(() => parseForm(form), [form]);
-  const { inputs, errors, byField, testPrice } = parsed;
+  // A blank top-up price is a question not yet answered: never red, never counted.
+  const quiet = new Set<string>(
+    form.plans.filter((p) => isBlankPrice(p, form.mode)).map((p) => `plan.${p.id}.price`),
+  );
+  const byField: typeof parsed.byField = {};
+  for (const [field, message] of Object.entries(parsed.byField) as [FormField, string][]) {
+    if (!quiet.has(field)) byField[field] = message;
+  }
+  const errors = parsed.errors.filter((e) => !quiet.has(e.field));
   const visible = useVisibleErrors(byField);
 
-  /** Open what holds a field (a section, or the What if tab), then focus it once it has rendered. */
+  const selected = form.plans.find((p) => p.id === form.selectedPlanId) ?? form.plans[0];
+  const selectedParsed = parsed.plans.find((p) => p.id === selected.id);
+  const moneyBroken = parsed.moneyErrors.length > 0;
+  const answer = planAnswer({
+    plan: selected,
+    mode: form.mode,
+    result: results[selected.id] ?? null,
+    errors: selectedParsed?.errors ?? [],
+    moneyBroken,
+    currency,
+  });
+  // What stops the selected plan: the money step's problems and its own.
+  const blocking = [...parsed.moneyErrors, ...realErrors(selected, form.mode, selectedParsed?.errors ?? [])];
+
+  const scrollToTop = () =>
+    requestAnimationFrame(() =>
+      document.getElementById("calculator")?.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" }),
+    );
+
+  const goTo = (step: Step) => {
+    if (step !== form.step) update({ step });
+    scrollToTop();
+  };
+
+  /** Go to the step holding a field, open its plan, then focus it once it has rendered. */
   const reveal = (field: FormField) => {
-    const section = sectionOf(field);
-    if (section) setOpenSection(section);
-    else setTab("whatif");
+    const plan = planOf(field);
+    if (plan) {
+      setOpenPlan(plan);
+      update({ step: stepOf(field), selectedPlanId: plan });
+    } else {
+      update({ step: stepOf(field) });
+    }
     requestAnimationFrame(() => requestAnimationFrame(() => focusField(field)));
   };
-  const toggleSection = (id: SectionId) => {
-    setOpenSection((cur) => (cur === id ? null : id));
-    // The section above may fold as this one opens; keep this one's header in view.
-    requestAnimationFrame(() =>
-      document.getElementById(`section-${id}-root`)?.scrollIntoView({
-        block: "nearest",
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      }),
-    );
+
+  const fix = () => {
+    if (blocking.length > 0) reveal(blocking[0].field);
+    else if (answer.missing === "price") reveal(`plan.${selected.id}.price`);
   };
-  // The blocking errors are what must be findable from a closed section.
-  const sectionHasError = (id: SectionId) => errors.some((e) => sectionOf(e.field) === id);
 
-  // The last inputs that parsed. Adjusted during render (React's "previous
-  // render" pattern) rather than in an effect, so there is no setState-in-
-  // effect and no frame where the results flash empty.
-  const [lastInputs, setLastInputs] = useState(inputs);
-  if (inputs !== null && inputs !== lastInputs) setLastInputs(inputs);
-  const shown = inputs ?? lastInputs;
-  const stale = inputs === null;
-
-  const loanOn = shown?.loan?.enabled === true;
-  // With a loan, one call solves both sides over one horizon; the deal's own
-  // maximum is its with-loan side.
-  const comparison: Comparison | null = useMemo(
-    () => (shown && loanOn ? compare(shown, testPrice) : null),
-    [shown, loanOn, testPrice],
-  );
-  const capacity = useMemo(
-    () => (comparison ? comparison.withLoan : shown ? maxFeasiblePrice(shown) : null),
-    [comparison, shown],
-  );
-  const rows = useMemo(() => (shown ? sensitivity(shown) : null), [shown]);
-  const tested = useMemo(
-    () => (comparison ? (comparison.tested?.withLoan ?? null) : shown && testPrice !== null ? simulate(shown, testPrice) : null),
-    [comparison, shown, testPrice],
-  );
-  const kind: PurchaseKind = shown ? purchaseOf(shown).kind : "developer-plan";
-
-  const currency = form.currency.trim().toUpperCase() || "EGP";
-  const money = (n: number) => formatMoney(n, currency);
-
-  // Which scenario the chart and table describe: the maximum by default, the
-  // tested price when the user asks. Derived, so removing the test price
-  // falls back to the maximum without a stale toggle.
-  const showing: SimulationResult | null =
-    detailsFor === "test" && tested ? tested : (capacity?.simulation ?? null);
-  // The sensitivity rows only mean something when there IS a maximum to move.
-  const hasSensitivity = rows !== null && capacity?.maxPrice !== null;
+  const stepHasError = (step: Step) =>
+    errors.some((e) => stepOf(e.field) === step && visible.errorFor(e.field) !== undefined);
 
   const resetAll = () => {
-    if (!confirm("Reset every input to the defaults? What you typed here will be lost.")) return;
+    if (!confirm("Start again from the examples? Everything you typed here will be lost.")) return;
     reset();
     visible.reset();
+    setOpenPlan(null);
+  };
+
+  const strip = {
+    name: planName(selected),
+    answer,
+    errorCount: blocking.length,
+    onFix: fix,
+    onCompare: () => goTo(3),
   };
 
   return (
     <FormErrorsProvider value={visible}>
-      <div className="mx-auto max-w-6xl px-4 py-6 md:py-8 xl:max-w-7xl">
+      <div className="mx-auto max-w-3xl px-4 py-6 md:py-8">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Real Estate</h1>
-            <p className="mt-1 text-sm text-white/50">
-              Installment buying capacity — the most expensive property your fund can carry.
-            </p>
+            <p className="mt-1 text-sm text-white/50">What can you afford — and which way of buying is best?</p>
           </div>
           <button
             type="button"
             onClick={resetAll}
             className="min-h-[44px] shrink-0 cursor-pointer rounded-lg border border-white/10 px-3 text-xs text-white/60 transition-colors hover:bg-white/5 hover:text-white active:bg-white/10"
           >
-            Reset
+            Start again
           </button>
         </div>
 
-        <div className="lg:grid lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-start lg:gap-6">
-          {/* ------------------------------------------------------------ inputs */}
-          <div className="space-y-3">
-            <LiveResult
-              maxPrice={capacity ? capacity.maxPrice : undefined}
-              currency={currency}
-              errors={errors}
-              onFix={reveal}
-              onShowResults={() => setTab("answer")}
-              loanDifference={
-                comparison ? (comparison.withLoan.maxPrice ?? 0) - (comparison.withoutLoan.maxPrice ?? 0) : null
-              }
-            />
+        <div className="surface mb-4 p-4 md:p-5">
+          <span className="mb-2 block text-xs font-medium text-white/60">What do you want to know?</span>
+          <Segmented<Mode>
+            ariaLabel="What to work out"
+            value={form.mode}
+            onChange={(mode) => update({ mode })}
+            options={[
+              { value: "max", label: "Max price" },
+              { value: "topUp", label: "Yearly top-up" },
+            ]}
+          />
+          <p className="mt-2 text-xs leading-snug text-white/50">
+            {form.mode === "max"
+              ? "The most each plan lets you pay without your savings dropping too low."
+              : "For a price you already have, how much you would need to add each year to make it work."}
+          </p>
+        </div>
 
-            {SECTIONS.map(({ id, title }) => (
-              <Section
-                key={id}
-                id={id}
-                title={title}
-                summary={sectionSummary(id, form)}
-                open={openSection === id}
-                onToggle={() => toggleSection(id)}
-                hasError={sectionHasError(id)}
-              >
-                {id === "buy" && <PurchasePicker form={form} update={update} />}
-                {id === "money" && (
-                  <div className="space-y-4">
-                    <CapitalRow form={form} update={update} />
-                    <RateInput form={form} update={update} />
-                    <CalcField
-                      field="returnFeePct"
-                      label="Fees or taxes on returns"
-                      hint="Deducted from every period's return. 0 if none."
-                      value={form.returnFeePct}
-                      onChange={(v) => update({ returnFeePct: v })}
-                      suffix="%"
-                      placeholder="0"
-                    />
-                    <CalcField
-                      field="safetyBuffer"
-                      label="Safety buffer"
-                      hint="The fund must never drop below this during the plan. 0 for none."
-                      group
-                      value={form.safetyBuffer}
-                      onChange={(v) => update({ safetyBuffer: v })}
-                      suffix={currency}
-                      placeholder="0"
-                    />
-                    <CalcField
-                      field="keepPct"
-                      label="Savings to keep at the end"
-                      hint="Of your starting capital, how much must still be in the fund after the last installment — 30 means keep 30% of it. 0 means it can all go into the property."
-                      value={form.keepPct}
-                      onChange={(v) => update({ keepPct: v })}
-                      suffix="% of capital"
-                      placeholder="0"
-                    />
-                  </div>
-                )}
-                {id === "payments" &&
-                  (form.purchaseKind === "resale" ? (
-                    <ResaleFields form={form} update={update} currency={currency} />
-                  ) : form.purchaseKind === "developer-cash" &&
-                    !planOpen &&
-                    !PLAN_FIELDS.some((f) => byField[f] !== undefined) &&
-                    !Object.keys(byField).some((f) => f.startsWith("year-")) ? (
-                    <PlanSummaryLine form={form} onEdit={() => setPlanOpen(true)} />
-                  ) : (
-                    <ScheduleEditor form={form} update={update} />
-                  ))}
-                {id === "loan" && (
-                  <LoanCard
-                    form={form}
-                    update={update}
-                    loan={showing?.loan ?? null}
-                    atPrice={showing === tested ? "test" : "max"}
-                    currency={currency}
-                  />
-                )}
-                {id === "extras" && (
-                  <div className="space-y-4">
-                    <div>
-                      <span className="mb-1.5 block text-xs font-medium text-white/60">How often</span>
-                      <Segmented<IncomeFrequency>
-                        ariaLabel="Income frequency"
-                        value={form.incomeFrequency}
-                        onChange={(incomeFrequency) => update({ incomeFrequency })}
-                        options={[
-                          { value: "monthly", label: "Monthly" },
-                          { value: "yearly", label: "Yearly" },
-                        ]}
-                      />
-                    </div>
-                    <CalcField
-                      field="incomeAmount"
-                      label="Amount"
-                      hint={
-                        form.incomeFrequency === "monthly"
-                          ? "Salary or other income you can put towards installments, added every month."
-                          : "Income you can put towards installments, added at the end of each year."
-                      }
-                      group
-                      value={form.incomeAmount}
-                      onChange={(v) => update({ incomeAmount: v })}
-                      suffix={`${currency} / ${form.incomeFrequency === "monthly" ? "month" : "year"}`}
-                      placeholder="0"
-                    />
-                    <CalcField
-                      field="incomeIncreasePct"
-                      label="Annual increase"
-                      hint="How much the amount grows each year. 0–100%."
-                      value={form.incomeIncreasePct}
-                      onChange={(v) => update({ incomeIncreasePct: v })}
-                      suffix="% a year"
-                      placeholder="0"
-                    />
-                    <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">Costs</h3>
-                    <CostRow
-                      label="Maintenance deposit"
-                      pctField="maintenancePct"
-                      yearField="maintenanceYear"
-                      pct={form.maintenancePct}
-                      year={form.maintenanceYear}
-                      onPct={(v) => update({ maintenancePct: v })}
-                      onYear={(v) => update({ maintenanceYear: v })}
-                    />
-                    <CostRow
-                      label="Finishing cost"
-                      pctField="finishingPct"
-                      yearField="finishingYear"
-                      pct={form.finishingPct}
-                      year={form.finishingYear}
-                      onPct={(v) => update({ finishingPct: v })}
-                      onYear={(v) => update({ finishingYear: v })}
-                    />
-                    <p className="-mt-2 text-[11px] leading-snug text-white/40">
-                      Both are a percentage of the price, charged at the end of the year they are due.
-                    </p>
-                  </div>
-                )}
-              </Section>
-            ))}
+        {/* One tall parent for the sticky strip/header, so they stick through every step. */}
+        <div id="calculator" style={{ scrollMarginTop: "calc(var(--top-nav-clearance) + 8px)" }}>
+          <div className="mb-3">
+            <LiveResult {...strip} />
           </div>
 
-          {/* ----------------------------------------------------------- results */}
-          <div id="results" className="mt-6 lg:mt-0" style={{ scrollMarginTop: "calc(var(--top-nav-clearance) + 12px)" }}>
-            <DesktopResultBar
-              visible={pastHeadline}
-              sim={capacity?.simulation ?? null}
-              maxPrice={capacity ? capacity.maxPrice : undefined}
-              currency={currency}
-              errors={errors}
-              onFix={reveal}
-              onShowResults={() => setTab("answer")}
-            />
+          {/* On a desktop the step bar and the answer stay in sight as one sticky header. */}
+          <div
+            className="lg:sticky lg:z-40 lg:-mx-3 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)] lg:gap-3 lg:rounded-2xl lg:bg-charcoal-dark/85 lg:px-3 lg:py-2 lg:backdrop-blur-xl"
+            style={{ top: "calc(var(--top-nav-clearance) + 8px)" }}
+          >
+            <StepBar step={form.step} onStep={goTo} hasError={stepHasError} />
+            <DesktopAnswer {...strip} />
+          </div>
 
-            <div ref={headlineRef}>
-              <ResultTabs value={tab} onChange={setTab} />
+          <div className="mt-5">
+          {form.step === 1 && (
+            <>
+              <MoneyStep money={form.money} currency={currency} />
+              <StepNav next={{ label: "Next: Plans", onClick: () => goTo(2) }} />
+            </>
+          )}
+
+          {form.step === 2 && (
+            <>
+              <PlansStep
+                form={form}
+                parsed={parsed}
+                results={results}
+                best={best}
+                currency={currency}
+                openPlan={openPlan}
+                onOpenPlan={setOpenPlan}
+                onSelect={(selectedPlanId) => update({ selectedPlanId })}
+              />
+              <StepNav
+                back={{ label: "Back", onClick: () => goTo(1) }}
+                next={{ label: "Next: Compare", onClick: () => goTo(3) }}
+              />
+            </>
+          )}
+
+          {form.step === 3 && (
+            <div className="space-y-3">
+              {form.plans.map((plan) => {
+                const parsedPlan = parsed.plans.find((p) => p.id === plan.id);
+                return (
+                  <PlanCard
+                    key={plan.id}
+                    name={planName(plan)}
+                    terms={planTerms(plan)}
+                    answer={planAnswer({
+                      plan,
+                      mode: form.mode,
+                      result: results[plan.id] ?? null,
+                      errors: parsedPlan?.errors ?? [],
+                      moneyBroken,
+                      currency,
+                    })}
+                    best={form.plans.length > 1 && best === plan.id}
+                    selected={plan.id === selected.id}
+                    onSelect={() => update({ selectedPlanId: plan.id })}
+                  />
+                );
+              })}
+              <StepNav back={{ label: "Back to plans", onClick: () => goTo(2) }} />
             </div>
-
-            <div {...tabPanelProps(tab)} className="mt-4 space-y-4">
-              {tab === "answer" && errors.length > 0 && (
-                <ErrorSummary errors={errors} hasResult={shown !== null} onFix={reveal} />
-              )}
-              {/* Only the result is dimmed while the form does not parse — the error card must stay legible. */}
-              <div className={`space-y-4 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
-                {tab === "answer" && (
-                  <>
-                    {shown && (
-                      <>
-                        {capacity && capacity.maxPrice === null ? (
-                          <Card className="animate-rise">
-                            <h2 className="text-lg font-bold text-white">Nothing is affordable with these numbers</h2>
-                            <p className="mt-2 text-sm leading-relaxed text-white/60">
-                              {shown.startingCapital < shown.safetyBuffer
-                                ? `Your starting capital (${money(shown.startingCapital)}) is already below the safety buffer (${money(
-                                    shown.safetyBuffer,
-                                  )}), so no property — not even a free one — keeps the fund above it.`
-                                : "Even a very small price pushes the fund below the buffer or the keep target somewhere in the plan."}{" "}
-                              Try a lower buffer or keep target, a longer plan, a smaller down payment, or more income.
-                              {loanOn
-                                ? " With a loan, the pledge counts as locked, not spendable — a lower lending ratio or a smaller loan share frees more of your savings."
-                                : ""}
-                            </p>
-                          </Card>
-                        ) : (
-                          capacity?.simulation && (
-                            <Hero
-                              kind={kind}
-                              sim={capacity.simulation}
-                              capital={shown.startingCapital}
-                              buffer={shown.safetyBuffer}
-                              currency={currency}
-                            />
-                          )
-                        )}
-                        {comparison && <LoanComparison inputs={shown} comparison={comparison} currency={currency} />}
-                        {showing && (
-                          <DealSummary inputs={shown} sim={showing} atPrice={showing === tested ? "test" : "max"} currency={currency} />
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-                {(tab === "time" || tab === "years") && shown && !showing && (
-                  <Card className="animate-rise">
-                    <p className="text-sm leading-relaxed text-white/60">
-                      Nothing is affordable with these numbers — check a specific price under What if to see its plan.
-                    </p>
-                  </Card>
-                )}
-                {tab === "time" && showing && shown && (
-                  <Card
-                    title={`Fund balance over the plan${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-                    className="animate-rise"
-                    style={{ animationDelay: "120ms" }}
-                  >
-                    <BalanceChart inputs={shown} sim={showing} currency={currency} />
-                  </Card>
-                )}
-                {tab === "years" && showing && shown && (
-                  <Card
-                    title={`Year by year${showing === tested ? ` — testing ${money(showing.price)}` : ""}`}
-                    className="animate-rise"
-                    style={{ animationDelay: "160ms" }}
-                  >
-                    <YearTable years={showing.years} buffer={shown.safetyBuffer} currency={currency} />
-                  </Card>
-                )}
-                {tab === "whatif" && shown && (
-                  <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
-                    <Card
-                      title="Check this deal"
-                      className={`animate-rise`}
-                      style={{ animationDelay: "40ms" }}
-                    >
-                      <CalcField
-                        field="testPrice"
-                        label={
-                          kind === "resale" ? "Cash to the seller" : kind === "developer-cash" ? "Installment price" : "Price"
-                        }
-                        hint="Leave blank to only see the maximum."
-                        group
-                        value={form.testPrice}
-                        onChange={(v) => update({ testPrice: v })}
-                        suffix={currency}
-                        placeholder="e.g. 7,500,000"
-                      />
-                      {tested && (
-                        <div className="mt-3">
-                          <Segmented<"max" | "test">
-                            ariaLabel="Which price the chart and table show"
-                            value={detailsFor === "test" ? "test" : "max"}
-                            onChange={setDetailsFor}
-                            options={[
-                              { value: "max", label: "Show maximum" },
-                              { value: "test", label: "Show tested" },
-                            ]}
-                          />
-                        </div>
-                      )}
-                      {tested && (
-                        <Verdict
-                          sim={tested}
-                          capital={shown.startingCapital}
-                          buffer={shown.safetyBuffer}
-                          currency={currency}
-                          label={comparison ? "With the loan" : undefined}
-                        />
-                      )}
-                      {comparison?.tested && (
-                        <Verdict
-                          sim={comparison.tested.withoutLoan}
-                          capital={shown.startingCapital}
-                          buffer={shown.safetyBuffer}
-                          currency={currency}
-                          label={kind === "developer-cash" ? "On the installment plan" : "Without the loan"}
-                        />
-                      )}
-                    </Card>
-
-
-                    {hasSensitivity && rows && (
-                      <Card title="If the fund's return changes" className="animate-rise" style={{ animationDelay: "80ms" }}>
-                        <SensitivityTable rows={rows} currency={currency} />
-                      </Card>
-                    )}
-                  </div>
-                )}
-              </div>
-              {!shown && tab !== "answer" && (
-                <p className="text-sm text-white/50">Fix the inputs to see this.</p>
-              )}
-              <p className="px-1 text-xs text-white/40">
-                Estimates assume constant rates. Fund and certificate returns vary and are not guaranteed; bank fees,
-                early repayment and tax on certificate interest are not modelled.
-              </p>
-            </div>
+          )}
           </div>
         </div>
+
+        <p className="mt-8 px-1 text-xs text-white/40">
+          Estimates assume constant rates. Fund and certificate returns vary and are not guaranteed; bank fees, early
+          repayment and tax on certificate interest are not modelled.
+        </p>
       </div>
     </FormErrorsProvider>
   );
 }
 
-/**
- * Every problem that stops the calculator, in page order, each a tap away
- * from its field. On a phone this sits under the form, so the jump matters;
- * on desktop it is the first thing in the results column.
- */
-function ErrorSummary({
-  errors,
-  hasResult,
-  onFix,
+/** Back (quiet) and Next (the step's one primary action) at the foot of a step. */
+function StepNav({
+  back,
+  next,
 }: {
-  errors: FormError[];
-  hasResult: boolean;
-  onFix: (field: FormField) => void;
+  back?: { label: string; onClick: () => void };
+  next?: { label: string; onClick: () => void };
 }) {
   return (
-    <Card className="border-loss/30">
-      <h2 className="text-sm font-semibold text-white">
-        {errors.length === 1 ? "One input needs fixing" : `${errors.length} inputs need fixing`}
-      </h2>
-      <p className="mt-0.5 text-xs text-white/50">
-        {hasResult ? "Below is the last result that worked, until these are fixed." : "There is no result until these are fixed."}
-      </p>
-      <ul className="mt-2 divide-y divide-white/5">
-        {errors.map((e, i) => (
-          <li key={`${e.field}-${i}`}>
-            <button
-              type="button"
-              onClick={() => onFix(e.field)}
-              className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-md px-1 text-left text-sm transition-colors hover:bg-white/[0.03] active:bg-white/5"
-            >
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-loss" aria-hidden />
-              <span className="flex-1 text-white/80">{e.message}</span>
-              <span className="shrink-0 text-[11px] font-medium text-accent">Go to field</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-/**
- * The headline: the maximum price, big, with the figures that make it up.
- * The figure grows with the screen (60px on a desktop); the six tiles beneath
- * it become one row at `xl:`. The tiles drop the currency code — the figure
- * states it once — so a wide number never wraps inside a narrow tile.
- */
-function Hero({
-  kind,
-  sim,
-  capital,
-  buffer,
-  currency,
-}: {
-  kind: PurchaseKind;
-  sim: SimulationResult;
-  capital: number;
-  buffer: number;
-  currency: string;
-}) {
-  const money = (n: number) => formatMoney(n, currency);
-  const figure = (n: number) => formatMoney(n, "");
-  return (
-    <Card className="animate-rise">
-      <div className="text-xs font-medium text-white/50">
-        {kind === "resale" ? "Most you can pay the seller" : "Maximum buying capacity"}
-      </div>
-      {/* The hero figure: same sans as everything else, proportional digits. */}
-      <div className="mt-1 text-4xl font-bold leading-none tracking-tight text-white md:text-5xl lg:text-6xl">
-        {figure(sim.price)}
-        <span className="ml-2 text-base font-medium text-white/40 lg:text-lg">{currency}</span>
-      </div>
-      <p className="mt-2 text-xs leading-snug text-white/40">
-        {kind === "developer-cash"
-          ? `The highest installment price this deal carries — you pay ${money(sim.upFront)} in cash — without the fund dropping below ${money(buffer)}.`
-          : kind === "resale"
-            ? `The most cash to the seller this deal carries, on top of the ${money(sim.totalInstallments)} still owed to the developer, without the fund dropping below ${money(buffer)}.`
-            : `The most expensive property this plan carries without the fund dropping below ${money(buffer)}.`}
-      </p>
-
-      {/* What it costs, what is left, and where the money ended up. All in {currency}. */}
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        <Stat label={kind === "developer-plan" ? "Down payment" : "Paid up front"} value={figure(sim.downPayment)} />
-        <Stat label="Total installments" value={figure(sim.totalInstallments)} />
-        <Stat label="Extra costs" value={figure(sim.totalExtraCosts)} />
-        <Stat label="Final balance" value={figure(sim.finalBalance)} sub={`end of year ${sim.horizonYears}`} />
-        <Stat
-          label="Paid into the property"
-          value={figure(sim.paidIntoProperty)}
-          sub={`${formatPct(sim.paidIntoProperty / capital, 0)} of your capital`}
-        />
-        <Stat
-          label="Kept in the fund"
-          value={figure(sim.keptInFund)}
-          sub={`${formatPct(sim.keptShareOfCapital, 0)} of your capital`}
-        />
-      </div>
-    </Card>
-  );
-}
-
-/** Affordable / not affordable for the tested price, with the reason and the numbers. */
-function Verdict({
-  sim,
-  capital,
-  buffer,
-  currency,
-  label,
-}: {
-  sim: SimulationResult;
-  capital: number;
-  buffer: number;
-  currency: string;
-  label?: string;
-}) {
-  const money = (n: number) => formatMoney(n, currency);
-
-  if (sim.feasible) {
-    return (
-      <div role="status" className="mt-3 flex gap-2.5 rounded-lg border border-gain/30 bg-gain/10 px-3 py-2.5 text-sm">
-        <VerdictIcon ok />
-        <div className="min-w-0">
-          <div className="font-semibold text-gain">
-            {label && <span className="text-white/60">{label}: </span>}Affordable
-          </div>
-          <p className="mt-0.5 text-xs leading-snug text-white/70">
-            {money(sim.price)} keeps the fund above the buffer all the way. Lowest balance {money(sim.minBalance)};
-            ends with {money(sim.finalBalance)} ({formatPct(sim.keptShareOfCapital, 0)} of your capital kept).
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const breach = sim.firstBreach;
-  return (
-    <div role="status" className="mt-3 flex gap-2.5 rounded-lg border border-loss/30 bg-loss/10 px-3 py-2.5 text-sm">
-      <VerdictIcon ok={false} />
-      <div className="min-w-0">
-        <div className="font-semibold text-loss">
-          {label && <span className="text-white/60">{label}: </span>}Not affordable
-        </div>
-        <p className="mt-0.5 text-xs leading-snug text-white/70">
-          {breach
-            ? breach.month === 0
-              ? sim.loan && sim.loan.pledge > 0
-                ? `The bank's guarantee plus your share of the up-front payment (${money(
-                    sim.upFrontFromFund + sim.loan.pledge,
-                  )}) leaves the fund ${money(breach.shortfall)} short of the ${money(buffer)} buffer.`
-                : `Paying ${money(sim.upFront)} up front leaves the fund ${money(breach.shortfall)} short of the buffer.`
-              : `Money runs out in month ${breach.month} (year ${Math.ceil(breach.month / 12)}): the balance falls ${money(
-                  breach.shortfall,
-                )} short of the ${money(buffer)} buffer.`
-            : sim.endShortfall
-              ? `The buffer holds, but the plan ends with ${money(sim.finalBalance)} — ${money(
-                  sim.endShortfall.shortfall,
-                )} short of the ${money(sim.endShortfall.target)} (${formatPct(sim.endShortfall.target / capital, 0)}) you want to keep.`
-              : "The plan does not hold."}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/** A tick or a cross in the verdict's colour — the outcome is real money in or out of reach, so it earns it. */
-function VerdictIcon({ ok }: { ok: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      className={`mt-0.5 h-5 w-5 shrink-0 ${ok ? "text-gain" : "text-loss"}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="10" cy="10" r="8" />
-      {ok ? <path d="m6.5 10.5 2.25 2.25L13.5 8" /> : <path d="m7.5 7.5 5 5m0-5-5 5" />}
-    </svg>
-  );
-}
-
-/**
- * Starting capital with its currency code beside it. The code's column is
- * narrow, so like a cost row the pair shares one error line underneath —
- * the capital's problem first, since it is the one that stops the result.
- */
-function CapitalRow({ form, update }: { form: CapacityForm; update: (patch: Partial<CapacityForm>) => void }) {
-  const { errorFor, bind } = useFormErrors();
-  const error = errorFor("startingCapital") ?? errorFor("currency");
-  const errorId = `${fieldId("startingCapital")}-row-error`;
-  return (
-    <div>
-      <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-3">
-        <CalcField
-          field="startingCapital"
-          label="Starting capital"
-          hint="Your savings in the fund today."
-          errorId={errorId}
-          group
-          value={form.startingCapital}
-          onChange={(v) => update({ startingCapital: v })}
-          placeholder="5,000,000"
-        />
-        <Field label="Currency" error={errorFor("currency")} errorId={errorId}>
-          <CurrencyInput value={form.currency} onChange={(currency) => update({ currency })} {...bind("currency")} />
-        </Field>
-      </div>
-      {error && <FieldError id={errorId}>{error}</FieldError>}
-    </div>
-  );
-}
-
-/**
- * The three-letter code next to the capital. A raw input rather than a
- * NumberInput, so it reads the Field's error state itself.
- */
-function CurrencyInput({
-  value,
-  onChange,
-  onFocus,
-  onBlur,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onFocus: () => void;
-  onBlur: () => void;
-}) {
-  const { invalid, errorId } = useFieldState();
-  return (
-    <input
-      id={fieldId("currency")}
-      type="text"
-      maxLength={3}
-      autoCapitalize="characters"
-      autoComplete="off"
-      value={value}
-      onChange={(e) => onChange(e.target.value.toUpperCase())}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      aria-label="Currency code"
-      aria-invalid={invalid || undefined}
-      aria-describedby={errorId}
-      placeholder="EGP"
-      className={`w-full rounded-lg border bg-white/5 px-3 py-2.5 font-mono text-[16px] uppercase text-white placeholder:text-white/25 outline-none transition-colors focus:ring-2 md:text-sm ${
-        invalid ? "border-loss/50 focus:border-loss/70 focus:ring-loss/20" : "border-white/10 focus:border-accent/60 focus:ring-accent/20"
-      }`}
-    />
-  );
-}
-
-/**
- * A cost's share and its due year side by side. Two narrow fields, so the
- * error line is rendered once beneath the pair with room to read, and each
- * field only turns red and points at it.
- */
-function CostRow({
-  label,
-  pctField,
-  yearField,
-  pct,
-  year,
-  onPct,
-  onYear,
-}: {
-  label: string;
-  pctField: FormField;
-  yearField: FormField;
-  pct: string;
-  year: string;
-  onPct: (v: string) => void;
-  onYear: (v: string) => void;
-}) {
-  const { errorFor } = useFormErrors();
-  const error = errorFor(pctField) ?? errorFor(yearField);
-  const errorId = `${fieldId(pctField)}-row-error`;
-  return (
-    <div>
-      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
-        <CalcField
-          field={pctField}
-          label={label}
-          errorId={errorId}
-          value={pct}
-          onChange={onPct}
-          suffix="% of price"
-          placeholder="0"
-          ariaLabel={`${label} percent`}
-        />
-        <CalcField
-          field={yearField}
-          label="Due in year"
-          errorId={errorId}
-          value={year}
-          onChange={onYear}
-          placeholder="1"
-          ariaLabel={`${label} year due`}
-        />
-      </div>
-      {error && <FieldError id={errorId}>{error}</FieldError>}
-    </div>
-  );
-}
-
-/**
- * A cash purchase still carries the developer's plan — it is what "without
- * the loan" is compared against — but it is not what the user is deciding,
- * so it sits as one line until asked for. A plan with a problem is always
- * shown open, so its error is never hidden.
- */
-function PlanSummaryLine({ form, onEdit }: { form: CapacityForm; onEdit: () => void }) {
-  const freq = { yearly: "yearly", quarterly: "quarterly", monthly: "monthly" }[form.frequency];
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <p className="text-sm text-white/60">
-        Compared against the developer&apos;s plan:{" "}
-        <span className="text-white">
-          {form.downPaymentPct || "0"}% down · {form.planYears} years · {freq}
-        </span>
-      </p>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="min-h-[44px] shrink-0 cursor-pointer rounded-lg px-3 text-xs font-medium text-accent transition-colors hover:bg-white/5"
-      >
-        Edit
-      </button>
+    <div className="mt-6 flex items-center gap-3">
+      {back && (
+        <button
+          type="button"
+          onClick={back.onClick}
+          className="pressable min-h-[44px] cursor-pointer rounded-lg border border-white/10 px-4 text-sm text-white/70 hover:bg-white/5 hover:text-white"
+        >
+          {back.label}
+        </button>
+      )}
+      {next && (
+        <button
+          type="button"
+          onClick={next.onClick}
+          className="btn-primary ml-auto min-h-[44px] flex-1 rounded-lg px-4 text-sm font-medium sm:flex-none sm:px-6"
+        >
+          {next.label}
+        </button>
+      )}
     </div>
   );
 }

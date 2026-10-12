@@ -1,222 +1,106 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
-import { DEFAULT_STEP, type SimulationResult } from "@/lib/capacity";
-import type { FormError, FormField } from "@/app/lib/capacityForm";
-import { formatCompact, formatMoney, formatPct } from "@/app/lib/format";
+import type { PlanAnswer } from "@/app/lib/planAnswer";
 
-/** Scroll the results column's top under the nav; the id carries the scroll margin. */
-function scrollToResults() {
-  const el = document.getElementById("results");
-  if (!el) return;
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  el.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+interface Props {
+  /** The selected plan's name. */
+  name: string;
+  answer: PlanAnswer;
+  /** Blocking problems in the money step and the selected plan; > 0 turns the strip into "fix this". */
+  errorCount: number;
+  /** Go to the first problem (or, with no problem but no price, to the price field). */
+  onFix: () => void;
+  /** Go to step ③. */
+  onCompare: () => void;
 }
 
 /**
- * True once `ref`'s element has scrolled up past the nav — the moment a
- * condensed copy of it should take over. An IntersectionObserver against a
- * root inset by the nav's height, so no scroll listener and no per-frame
- * layout reads.
+ * The selected plan's answer, always in sight while the numbers change. On a
+ * phone it is a strip stuck under the nav on every step (`LiveResult`); on a
+ * desktop the same words sit at the end of the sticky step header
+ * (`DesktopAnswer`). With a problem it says how many inputs need fixing and
+ * the tap goes to the first; with no price yet (top-up mode) it asks for one;
+ * otherwise the tap goes to Compare.
  */
-export function useScrolledPast(ref: RefObject<HTMLElement | null>): boolean {
-  const [past, setPast] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // The top nav is the one sticky <nav>; measured, not restated.
-    const inset = (document.querySelector<HTMLElement>("nav.sticky")?.offsetHeight ?? 61) + 16;
-    const io = new IntersectionObserver(
-      ([entry]) => setPast(!entry.isIntersecting && entry.boundingClientRect.bottom < inset),
-      { rootMargin: `-${inset}px 0px 0px 0px`, threshold: 0 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [ref]);
-  return past;
-}
-
-/**
- * The desktop twin of the phone strip: a slim glass bar that sticks under
- * the nav in the results column and appears only once the headline card
- * has scrolled out of view — editing "Extra costs" three screens down, the
- * answer is still in sight. Hidden below `lg:`, where the phone strip does
- * this job; zero height in flow, so it costs the column nothing.
- */
-export function DesktopResultBar({
-  visible,
-  sim,
-  maxPrice,
-  currency,
-  errors,
-  onFix,
-  onShowResults,
-}: {
-  visible: boolean;
-  /** The simulation at the maximum, for the two figures beside the price. */
-  sim: SimulationResult | null;
-  maxPrice: number | null | undefined;
-  currency: string;
-  errors: FormError[];
-  onFix: (field: FormField) => void;
-  onShowResults: () => void;
-}) {
-  const broken = errors.length > 0;
-  return (
-    <div
-      className="pointer-events-none sticky z-40 hidden h-0 lg:block"
-      style={{ top: "calc(var(--top-nav-clearance) + 8px)" }}
-      aria-hidden={!visible}
-    >
-      <div
-        className={`flex min-h-[52px] items-center gap-4 rounded-xl border px-4 shadow-lg shadow-black/40 backdrop-blur-xl transition-[opacity,transform] duration-200 ease-out-expo ${
-          visible ? "pointer-events-auto translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
-        } ${broken ? "border-loss/30 bg-charcoal/90" : "border-white/10 bg-charcoal/85"}`}
-      >
-        {broken ? (
-          <>
-            <span className="text-[10px] font-medium uppercase tracking-wider text-loss">Can&apos;t calculate</span>
-            <span className="text-sm text-white">
-              {errors.length === 1 ? "1 input needs fixing" : `${errors.length} inputs need fixing`}
-            </span>
-            <button
-              type="button"
-              onClick={() => onFix(errors[0].field)}
-              tabIndex={visible ? 0 : -1}
-              className="pressable ml-auto flex min-h-[36px] cursor-pointer items-center gap-1 rounded-lg px-3 text-xs font-medium text-loss hover:bg-white/5"
-            >
-              Fix
-              <Chevron direction="up" />
-            </button>
-          </>
-        ) : (
-          <>
-            <span className="text-[10px] font-medium uppercase tracking-wider text-white/50">Maximum</span>
-            <span className={`font-mono text-lg tabular-nums ${maxPrice === null ? "text-white/60" : "text-white"}`}>
-              {maxPrice === undefined ? "—" : maxPrice === null ? "Nothing affordable" : formatMoney(maxPrice, currency)}
-            </span>
-            {sim && maxPrice !== null && (
-              <span className="hidden text-xs text-white/40 xl:inline">
-                Ends with <span className="font-mono tabular-nums text-white/70">{formatMoney(sim.finalBalance, "")}</span>
-                {" · "}
-                <span className="font-mono tabular-nums text-white/70">{formatPct(sim.keptShareOfCapital, 0)}</span> kept
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                onShowResults();
-                scrollToResults();
-              }}
-              tabIndex={visible ? 0 : -1}
-              className="pressable ml-auto flex min-h-[36px] cursor-pointer items-center gap-1 rounded-lg px-3 text-xs font-medium text-accent hover:bg-white/5"
-            >
-              Summary
-              <Chevron direction="up" />
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * On a phone the inputs sit ABOVE the results, so a number changed at the
- * top has its effect two screens down. This strip sticks under the nav
- * while the inputs are on screen and shows the answer as it moves; tapping
- * it scrolls to the full results. When the form does not parse it says how
- * many inputs to fix and tapping goes to the first one.
- *
- * Hidden from `lg:` up, where the results column is beside the form and
- * DesktopResultBar takes over. The same glass as the pill nav, and its
- * `top` reads --top-nav-clearance.
- */
-export default function LiveResult({
-  maxPrice,
-  currency,
-  errors,
-  onFix,
-  onShowResults,
-  loanDifference,
-}: {
-  /** The maximum, null when nothing is affordable, undefined when there is no result yet. */
-  maxPrice: number | null | undefined;
-  /** With-loan maximum minus without-loan maximum; null/undefined when no loan is on. */
-  loanDifference?: number | null;
-  currency: string;
-  errors: FormError[];
-  onFix: (field: FormField) => void;
-  onShowResults: () => void;
-}) {
-  const broken = errors.length > 0;
-
+export default function LiveResult({ name, answer, errorCount, onFix, onCompare }: Props) {
+  const broken = errorCount > 0;
+  const needsPrice = !broken && answer.missing === "price";
   return (
     <div className="sticky z-40 lg:hidden" style={{ top: "calc(var(--top-nav-clearance) + 8px)" }}>
       <button
         type="button"
-        onClick={
-          broken
-            ? () => onFix(errors[0].field)
-            : () => {
-                onShowResults();
-                scrollToResults();
-              }
-        }
-        aria-live="polite"
+        onClick={broken || needsPrice ? onFix : onCompare}
         className={`pressable flex min-h-[56px] w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-2 text-left shadow-lg shadow-black/40 backdrop-blur-xl active:bg-white/5 ${
           broken ? "border-loss/30 bg-charcoal/90" : "border-white/10 bg-charcoal/85"
         }`}
       >
-        {broken ? (
-          <>
-            <span className="min-w-0">
-              <span className="block text-[10px] font-medium uppercase tracking-wider text-loss">Can&apos;t calculate</span>
-              <span className="block truncate text-sm text-white">
-                {errors.length === 1 ? "1 input needs fixing" : `${errors.length} inputs need fixing`}
-              </span>
-            </span>
-            <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-loss">
-              Fix
-              <Chevron direction="up" />
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="min-w-0">
-              <span className="block text-[10px] font-medium uppercase tracking-wider text-white/50">
-                Maximum buying capacity
-              </span>
-              <span
-                className={`block truncate font-mono text-base tabular-nums ${
-                  maxPrice === null ? "text-white/60" : "text-white"
-                }`}
-              >
-                {maxPrice === undefined ? "—" : maxPrice === null ? "Nothing affordable" : formatMoney(maxPrice, currency)}
-              </span>
-              {loanDifference != null && maxPrice != null && Math.abs(loanDifference) > DEFAULT_STEP && (
-                <span className="block text-[11px] text-white/50">
-                  {loanDifference > 0 ? "+" : "−"}
-                  {formatCompact(Math.abs(loanDifference), 2)} with the loan
-                </span>
-              )}
-            </span>
-            <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-accent">
-              Results
-              <Chevron direction="down" />
-            </span>
-          </>
-        )}
+        <Words name={name} answer={answer} errorCount={errorCount} />
+        <span className={`flex shrink-0 items-center gap-1 text-xs font-medium ${broken ? "text-loss" : "text-accent"}`}>
+          {broken ? "Fix" : needsPrice ? "Add price" : "Compare"}
+          <Chevron />
+        </span>
       </button>
     </div>
   );
 }
 
-function Chevron({ direction }: { direction: "up" | "down" }) {
+/** The desktop twin: one line at the end of the sticky step header. */
+export function DesktopAnswer({ name, answer, errorCount, onFix, onCompare }: Props) {
+  const broken = errorCount > 0;
+  const needsPrice = !broken && answer.missing === "price";
+  return (
+    <button
+      type="button"
+      onClick={broken || needsPrice ? onFix : onCompare}
+      className={`pressable hidden min-h-[52px] min-w-0 cursor-pointer items-center gap-4 rounded-2xl border px-4 text-left hover:bg-white/[0.03] lg:flex ${
+        broken ? "border-loss/30" : "border-white/10"
+      }`}
+    >
+      <Words name={name} answer={answer} errorCount={errorCount} />
+      <span className={`ml-auto flex shrink-0 items-center gap-1 text-xs font-medium ${broken ? "text-loss" : "text-accent"}`}>
+        {broken ? "Fix" : needsPrice ? "Add price" : "Compare"}
+        <Chevron />
+      </span>
+    </button>
+  );
+}
+
+function Words({ name, answer, errorCount }: { name: string; answer: PlanAnswer; errorCount: number }) {
+  if (errorCount > 0) {
+    return (
+      <span className="min-w-0" aria-live="polite">
+        <span className="block text-[10px] font-medium uppercase tracking-wider text-loss">Can&apos;t calculate</span>
+        <span className="block truncate text-sm text-white">
+          {errorCount === 1 ? "1 input needs fixing" : `${errorCount} inputs need fixing`}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="min-w-0" aria-live="polite">
+      <span className="block truncate text-[10px] font-medium uppercase tracking-wider text-white/50">
+        {answer.label} · <span className="normal-case tracking-normal">{name}</span>
+      </span>
+      <span
+        className={`block truncate text-base ${
+          answer.tone === "answer"
+            ? "font-mono tabular-nums text-white"
+            : answer.tone === "problem"
+              ? "font-medium text-loss"
+              : "text-white/60"
+        }`}
+      >
+        {answer.value}
+      </span>
+    </span>
+  );
+}
+
+function Chevron() {
   return (
     <svg
       viewBox="0 0 16 16"
-      className={`h-4 w-4 ${direction === "up" ? "rotate-180" : ""}`}
+      className="h-4 w-4 -rotate-90"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.75"
