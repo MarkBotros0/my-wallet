@@ -348,6 +348,38 @@ with the first month it fails.
   guarantee plus your share of the cash (10,000,000) is more than your
   savings (8,000,000)."
 
+### 8. Not one long page — folding sections and result tabs
+
+Mark's ask (2026-10-12): the calculator must not be one very long page.
+Chosen over a step-by-step wizard (changing one number would mean
+stepping back through screens) and over an Inputs / Results switch (each
+half would still be one long scroll):
+
+- **Inputs are five folding sections, one open at a time:** How you buy ·
+  Your money (capital, return, fees, buffer, keep) · Payments (the
+  developer plan, its one-line summary for a cash purchase, or the
+  resale's remaining balance) · Bank loan · Income & costs. A closed
+  section is one 52px row: its title, a one-line summary of what is in it
+  ("Resale · with a loan", "5,000,000 EGP · 20.33% return · buffer
+  500,000", "Off"), a red dot when a field inside has a problem, and a
+  chevron. Opening one closes the open one. "How you buy" is open on
+  arrival. The summaries come from a pure, tested helper
+  (`capacitySections.ts`), which also maps each form field to its section.
+- **Jumping to a field opens its section first** — the error summary, the
+  phone strip's "Fix" and the desktop bar's "Fix" all go through one
+  `reveal(field)` that opens the section (or the What if tab for the test
+  price) and then focuses the field.
+- **Results are four tabs** (an ARIA tablist, arrow keys move):
+  **Answer** (errors, the hero, the loan verdict and comparison, "Your
+  deal") · **Over time** (the chart) · **Year by year** (the table) ·
+  **What if** (check this deal, the return-rate table). Only the active
+  panel renders. The footnote sits under every panel. The phone strip's
+  "Results" opens the Answer tab and scrolls to it; the desktop bar
+  appears once the tab bar has scrolled under the nav.
+- On a desktop the two columns stay — sections on the left, tabs on the
+  right — so the whole calculator fits in roughly one screen height plus
+  the open section.
+
 ### Persistence
 
 Per device, as today; `normalizeForm` defaults to developer installments

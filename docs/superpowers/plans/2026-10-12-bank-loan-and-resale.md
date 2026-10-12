@@ -4,7 +4,7 @@
 
 **Goal:** Extend the Real Estate buying-capacity calculator with three ways of buying (developer installments, developer cash with a discount, resale) and an optional bank loan secured by pledged certificates, with a with/without-loan comparison and a plain-language read-back.
 
-**Architecture:** The pure engine in `src/lib/capacity` is generalised, not duplicated: every deal is an up-front payment at month 0 plus an optional developer payment stream, and an optional loan that funds part of the up-front payment while a pledge sits locked earning a certificate rate. `purchase.ts` builds the deal, `loan.ts` holds the flat-loan maths, `simulate.ts` walks the months (spendable balance + held pledge), `solve.ts` gains a horizon and `compare`. The form layer (`capacityForm.ts`) gains string fields, and `dealText.ts` turns results into sentences. UI components consume those.
+**Architecture:** The pure engine in `src/lib/capacity` is generalised, not duplicated: every deal is an up-front payment at month 0 plus an optional developer payment stream, and an optional loan that funds part of the up-front payment while a pledge sits locked earning a certificate rate. `purchase.ts` builds the deal, `loan.ts` holds the flat-loan maths, `simulate.ts` walks the months (spendable balance + held pledge), `solve.ts` gains a horizon and `compare`. The form layer (`capacityForm.ts`) gains string fields, and `dealText.ts` turns results into sentences. UI components consume those, laid out as five folding input sections and four result tabs so the page is never one long scroll.
 
 **Tech Stack:** Next.js 16 (App Router), React 19, TypeScript, Tailwind v4, Vitest.
 
@@ -18,6 +18,7 @@
 - `isFeasible` stays `simulate(...).feasible`. No second walk.
 - `gain` = money in, `loss` = money out, never decoration. Pledged/locked money and comparisons are positions: white/muted.
 - Touch targets `min-h-[44px]`; inputs keep `text-[16px] md:text-sm`; money inputs use `NumberInput group`.
+- **Not one long page** (Mark, 2026-10-12): inputs live in five folding sections, one open at a time; results in four tabs (Task 7). New content goes into a section or a tab, never as another full-width card down the page.
 - Every animation already respects reduced motion via the base layer; do not add per-component checks.
 - Lint rules: no synchronous `setState` in an effect body; adjust-during-render or `useSyncExternalStore` instead.
 - Certificate interest = `held × certificateRate / 12` per month, net (no `returnFee`).
@@ -35,7 +36,7 @@
 2. **A corrupted/unknown `purchaseKind` or `pledgeRelease` in localStorage** — falls back to the default instead of crashing a `switch` (Task 5 test).
 3. **Resale with hidden, invalid plan fields** (e.g. plan years blank from earlier editing) — must not block the result or show errors for fields the user cannot see (Task 5 test).
 4. **Loan longer than the developer plan** (loan 10 years, plan 4) — horizon extends, extra-cost years up to the horizon are valid, the without-loan side is simulated over the same 10 years (Tasks 3 and 4 tests).
-5. **Pledge larger than the savings** (lending ratio 50%, borrow 100%) — infeasible at month 0 with the "guarantee plus your share" message, not a negative balance shown as affordable (Task 3 test + Task 9 verdict copy).
+5. **Pledge larger than the savings** (lending ratio 50%, borrow 100%) — infeasible at month 0 with the "guarantee plus your share" message, not a negative balance shown as affordable (Task 3 test + Task 10 verdict copy).
 
 ---
 
@@ -51,6 +52,9 @@
 | `src/lib/capacity/index.ts` (modify) | Exports |
 | `src/app/lib/capacityForm.ts` (modify) | New form fields, parsing, defaults, enum-safe normalising |
 | `src/app/lib/dealText.ts` (create) | `describeDeal`, `loanVerdict` — pure, tested |
+| `src/app/lib/capacitySections.ts` (create) | The five input sections: field → section, one-line summaries; tested |
+| `src/app/components/capacity/Section.tsx` (create) | One folding input section |
+| `src/app/components/capacity/ResultTabs.tsx` (create) | Answer · Over time · Year by year · What if |
 | `src/app/components/capacity/PurchasePicker.tsx` (create) | "How are you buying?" cards + per-kind fields |
 | `src/app/components/capacity/LoanCard.tsx` (create) | Loan switch, fields, read-backs, bank terms, glossary |
 | `src/app/components/capacity/Explain.tsx` (create) | The "What's this?" disclosure |
@@ -1357,7 +1361,7 @@ export {
 - [ ] **Step 4: Run all tests and type-check**
 
 Run: `npx vitest run src/lib/capacity && npx tsc --noEmit -p .`
-Expected: tests PASS. `tsc` may report errors in UI files that read `MonthPoint`/`YearSummary` — there should be none, since fields were only added; if there are, they are in Task 5–10 files and are fixed there. Note them, do not fix UI here.
+Expected: tests PASS. `tsc` may report errors in UI files that read `MonthPoint`/`YearSummary` — there should be none, since fields were only added; if there are, they are in Task 5–12 files and are fixed there. Note them, do not fix UI here.
 
 - [ ] **Step 5: Commit**
 
@@ -1957,7 +1961,484 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 
 ---
 
-### Task 7: "How are you buying?" — the purchase picker and per-kind plan card
+### Task 7: Not one long page — folding input sections and result tabs
+
+Restructures the EXISTING page (before any new content is added) so later
+tasks drop their pieces into a section or a tab. Spec: *The screen*, §8.
+
+**Files:**
+- Create: `src/app/lib/capacitySections.ts`
+- Test: `src/app/lib/capacitySections.test.ts`
+- Create: `src/app/components/capacity/Section.tsx`
+- Create: `src/app/components/capacity/ResultTabs.tsx`
+- Modify: `src/app/components/capacity/CapacityCalculator.tsx`
+- Modify: `src/app/components/capacity/LiveResult.tsx`
+
+**Interfaces:**
+- Consumes: `CapacityForm`, `FormField` (Task 5).
+- Produces:
+  - `type SectionId = "buy" | "money" | "payments" | "loan" | "extras"`
+  - `SECTIONS: readonly { id: SectionId; title: string }[]`
+  - `sectionOf(field: FormField): SectionId | null` (null for `testPrice`, which lives in the What if tab)
+  - `sectionSummary(id: SectionId, form: CapacityForm): string`
+  - `default function Section({ id, title, summary, open, onToggle, hasError, children }: { id: SectionId; title: string; summary: string; open: boolean; onToggle: () => void; hasError: boolean; children: ReactNode })`
+  - `type ResultTab = "answer" | "time" | "years" | "whatif"`; `RESULT_TABS: readonly { id: ResultTab; label: string }[]`
+  - `default function ResultTabs({ value, onChange }: { value: ResultTab; onChange: (tab: ResultTab) => void })`; `tabPanelProps(tab: ResultTab)` → `{ role: "tabpanel", id, "aria-labelledby" }`
+  - In `CapacityCalculator`: `openSection` / `tab` state and `reveal(field: FormField)`; later tasks put content inside `<Section id="buy">`, `"payments"`, `"loan"` and inside the `"answer"` / `"whatif"` panels.
+  - `LiveResult` and `DesktopResultBar` gain `onFix: (field: FormField) => void`; `LiveResult` gains `onShowResults: () => void`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `src/app/lib/capacitySections.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { DEFAULT_FORM, type CapacityForm } from "./capacityForm";
+import { SECTIONS, sectionOf, sectionSummary } from "./capacitySections";
+
+const form = (over: Partial<CapacityForm> = {}): CapacityForm => ({ ...DEFAULT_FORM, ...over });
+
+describe("sectionOf", () => {
+  it("puts every field in the section it is typed in", () => {
+    expect(sectionOf("cashDiscountPct")).toBe("buy");
+    expect(sectionOf("startingCapital")).toBe("money");
+    expect(sectionOf("keepPct")).toBe("money");
+    expect(sectionOf("planYears")).toBe("payments");
+    expect(sectionOf("year-3")).toBe("payments");
+    expect(sectionOf("resaleRemaining")).toBe("payments");
+    expect(sectionOf("lendingRatioPct")).toBe("loan");
+    expect(sectionOf("finishingYear")).toBe("extras");
+    expect(sectionOf("testPrice")).toBeNull();
+  });
+  it("lists the sections in page order", () => {
+    expect(SECTIONS.map((s) => s.id)).toEqual(["buy", "money", "payments", "loan", "extras"]);
+  });
+});
+
+describe("sectionSummary", () => {
+  it("says how the property is bought, and whether a loan is on", () => {
+    expect(sectionSummary("buy", form())).toBe("Developer installments");
+    expect(sectionSummary("buy", form({ purchaseKind: "developer-cash", cashDiscountPct: "30" }))).toBe(
+      "Developer cash · 30% off",
+    );
+    expect(sectionSummary("buy", form({ purchaseKind: "resale", loanEnabled: true }))).toBe("Resale · with a loan");
+  });
+  it("sums up the money", () => {
+    expect(sectionSummary("money", form({ startingCapital: "5,000,000", safetyBuffer: "500,000" }))).toBe(
+      "5,000,000 EGP · 20.33% return · buffer 500,000",
+    );
+    expect(sectionSummary("money", form({ rateMode: "nominal", nominalRatePct: "18.51", safetyBuffer: "" }))).toBe(
+      "5,000,000 EGP · 18.51% nominal return",
+    );
+  });
+  it("sums up the payments for each kind", () => {
+    expect(sectionSummary("payments", form())).toBe("10% down · 8 years · yearly");
+    expect(sectionSummary("payments", form({ purchaseKind: "developer-cash" }))).toBe(
+      "Compared against 10% down · 8 years · yearly",
+    );
+    expect(
+      sectionSummary("payments", form({ purchaseKind: "resale", resaleRemaining: "5,000,000", resaleYears: "4" })),
+    ).toBe("5,000,000 left · 4 years · yearly");
+  });
+  it("sums up the loan, or says it is off", () => {
+    expect(sectionSummary("loan", form())).toBe("Off");
+    expect(sectionSummary("loan", form({ loanEnabled: true }))).toBe("100% borrowed · 12% flat · 5 years");
+  });
+  it("lists income and costs, or says there are none", () => {
+    expect(sectionSummary("extras", form())).toBe("None");
+    expect(
+      sectionSummary("extras", form({ incomeAmount: "40,000", maintenancePct: "8", maintenanceYear: "4" })),
+    ).toBe("40,000 a month · maintenance 8% in year 4");
+  });
+});
+```
+
+- [ ] **Step 2: Run to see them fail**
+
+Run: `npx vitest run src/app/lib/capacitySections.test.ts`
+Expected: FAIL — `Cannot find module './capacitySections'`.
+
+- [ ] **Step 3: Implement `capacitySections.ts`**
+
+```ts
+import type { CapacityForm, FormField } from "./capacityForm";
+
+/**
+ * The calculator's inputs as five folding sections — so the page is never one
+ * long scroll — with the one-line summary a closed section shows, and which
+ * section each field lives in (so "go to field" can open it first). Pure, so
+ * the summaries are tested like the rest of the form.
+ */
+
+export type SectionId = "buy" | "money" | "payments" | "loan" | "extras";
+
+export const SECTIONS: readonly { id: SectionId; title: string }[] = [
+  { id: "buy", title: "How you buy" },
+  { id: "money", title: "Your money" },
+  { id: "payments", title: "Payments" },
+  { id: "loan", title: "Bank loan" },
+  { id: "extras", title: "Income & costs" },
+];
+
+const FIELD_SECTION: Partial<Record<FormField, SectionId>> = {
+  cashDiscountPct: "buy",
+  startingCapital: "money",
+  currency: "money",
+  effectiveRatePct: "money",
+  nominalRatePct: "money",
+  returnFeePct: "money",
+  safetyBuffer: "money",
+  keepPct: "money",
+  planYears: "payments",
+  downPaymentPct: "payments",
+  yearPcts: "payments",
+  resaleRemaining: "payments",
+  resaleYears: "payments",
+  loanSharePct: "loan",
+  loanFlatRatePct: "loan",
+  loanYears: "loan",
+  lendingRatioPct: "loan",
+  certificateRatePct: "loan",
+  incomeAmount: "extras",
+  incomeIncreasePct: "extras",
+  maintenancePct: "extras",
+  maintenanceYear: "extras",
+  finishingPct: "extras",
+  finishingYear: "extras",
+};
+
+/** The section a field is typed in; null for the test price (the What if tab). */
+export function sectionOf(field: FormField): SectionId | null {
+  if (field.startsWith("year-")) return "payments";
+  return FIELD_SECTION[field] ?? null;
+}
+
+const filled = (v: string) => v.trim() !== "";
+const years = (v: string) => (v.trim() === "1" ? "1 year" : `${v.trim()} years`);
+
+function planLine(form: CapacityForm): string {
+  return `${form.downPaymentPct.trim() || "0"}% down · ${years(form.planYears)} · ${form.frequency}`;
+}
+
+export function sectionSummary(id: SectionId, form: CapacityForm): string {
+  switch (id) {
+    case "buy": {
+      const kind =
+        form.purchaseKind === "resale"
+          ? "Resale"
+          : form.purchaseKind === "developer-cash"
+            ? `Developer cash${filled(form.cashDiscountPct) ? ` · ${form.cashDiscountPct.trim()}% off` : ""}`
+            : "Developer installments";
+      return form.loanEnabled ? `${kind} · with a loan` : kind;
+    }
+    case "money": {
+      const currency = form.currency.trim().toUpperCase() || "EGP";
+      const rate =
+        form.rateMode === "effective" ? `${form.effectiveRatePct.trim()}% return` : `${form.nominalRatePct.trim()}% nominal return`;
+      const parts = [`${form.startingCapital.trim() || "0"} ${currency}`, rate];
+      if (filled(form.safetyBuffer)) parts.push(`buffer ${form.safetyBuffer.trim()}`);
+      return parts.join(" · ");
+    }
+    case "payments":
+      if (form.purchaseKind === "resale") {
+        return `${form.resaleRemaining.trim() || "0"} left · ${years(form.resaleYears)} · ${form.resaleFrequency}`;
+      }
+      return form.purchaseKind === "developer-cash" ? `Compared against ${planLine(form)}` : planLine(form);
+    case "loan":
+      return form.loanEnabled
+        ? `${form.loanSharePct.trim()}% borrowed · ${form.loanFlatRatePct.trim()}% flat · ${years(form.loanYears)}`
+        : "Off";
+    case "extras": {
+      const parts: string[] = [];
+      if (filled(form.incomeAmount)) {
+        parts.push(`${form.incomeAmount.trim()} a ${form.incomeFrequency === "monthly" ? "month" : "year"}`);
+      }
+      if (filled(form.maintenancePct)) parts.push(`maintenance ${form.maintenancePct.trim()}% in year ${form.maintenanceYear.trim()}`);
+      if (filled(form.finishingPct)) parts.push(`finishing ${form.finishingPct.trim()}% in year ${form.finishingYear.trim()}`);
+      return parts.length ? parts.join(" · ") : "None";
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Run the tests**
+
+Run: `npx vitest run src/app/lib/capacitySections.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: The folding section**
+
+Create `src/app/components/capacity/Section.tsx`:
+
+```tsx
+"use client";
+
+import type { ReactNode } from "react";
+import type { SectionId } from "@/app/lib/capacitySections";
+
+/**
+ * One folding input section. Closed, it is a single row — title, what is
+ * inside in one line, a red dot when a field inside has a problem — so the
+ * whole form reads at a glance; open, it shows its fields. The parent keeps
+ * one open at a time. A real button with aria-expanded, a 52px target.
+ */
+export default function Section({
+  id,
+  title,
+  summary,
+  open,
+  onToggle,
+  hasError,
+  children,
+}: {
+  id: SectionId;
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  hasError: boolean;
+  children: ReactNode;
+}) {
+  const panelId = `section-${id}`;
+  return (
+    <section id={`${panelId}-root`} className="surface overflow-hidden" style={{ scrollMarginTop: "calc(var(--top-nav-clearance) + 76px)" }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="flex min-h-[52px] w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.02] active:bg-white/[0.04] md:px-5"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-white">{title}</span>
+          {!open && <span className="block truncate text-xs text-white/50">{summary}</span>}
+        </span>
+        {hasError && <span className="h-2 w-2 shrink-0 rounded-full bg-loss" aria-label="Has a problem" />}
+        <svg
+          viewBox="0 0 16 16"
+          className={`h-4 w-4 shrink-0 text-white/50 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M4 6.5 8 10.5l4-4" />
+        </svg>
+      </button>
+      {open && (
+        <div id={panelId} className="animate-rise px-4 pb-4 md:px-5 md:pb-5">
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+```
+
+- [ ] **Step 6: The result tabs**
+
+Create `src/app/components/capacity/ResultTabs.tsx`:
+
+```tsx
+"use client";
+
+import { useRef, type KeyboardEvent } from "react";
+
+export type ResultTab = "answer" | "time" | "years" | "whatif";
+
+export const RESULT_TABS: readonly { id: ResultTab; label: string }[] = [
+  { id: "answer", label: "Answer" },
+  { id: "time", label: "Over time" },
+  { id: "years", label: "Year by year" },
+  { id: "whatif", label: "What if" },
+];
+
+/** The ARIA wiring for a tab's panel — only the active panel is rendered. */
+export function tabPanelProps(tab: ResultTab) {
+  return { role: "tabpanel" as const, id: `results-panel-${tab}`, "aria-labelledby": `results-tab-${tab}` };
+}
+
+/**
+ * The results, split so no one view is a long scroll. A real tablist: the
+ * active tab is the only one in the tab order, arrows / Home / End move
+ * between tabs and select them (automatic activation — the panels are cheap).
+ * Four equal tabs fit a 360px phone at 12px.
+ */
+export default function ResultTabs({ value, onChange }: { value: ResultTab; onChange: (tab: ResultTab) => void }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const move = (e: KeyboardEvent, i: number) => {
+    const last = RESULT_TABS.length - 1;
+    const next =
+      e.key === "ArrowRight" ? (i === last ? 0 : i + 1)
+      : e.key === "ArrowLeft" ? (i === 0 ? last : i - 1)
+      : e.key === "Home" ? 0
+      : e.key === "End" ? last
+      : null;
+    if (next === null) return;
+    e.preventDefault();
+    onChange(RESULT_TABS[next].id);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div role="tablist" aria-label="Results" className="surface grid grid-cols-4 gap-1 p-1">
+      {RESULT_TABS.map((t, i) => {
+        const on = t.id === value;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`results-tab-${t.id}`}
+            aria-selected={on}
+            aria-controls={`results-panel-${t.id}`}
+            tabIndex={on ? 0 : -1}
+            onClick={() => onChange(t.id)}
+            onKeyDown={(e) => move(e, i)}
+            className={`min-h-[44px] cursor-pointer rounded-lg px-1 text-xs font-medium transition-colors ${
+              on ? "bg-accent/15 text-white" : "text-white/50 hover:bg-white/5 hover:text-white/80"
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 7: LiveResult and DesktopResultBar jump through the parent**
+
+In `LiveResult.tsx`: add to both components' props `onFix: (field: FormField) => void` (import `type FormField` from `@/app/lib/capacityForm`), replace both `focusField(errors[0].field)` calls with `onFix(errors[0].field)`, and remove the now-unused `focusField` import. Add to `LiveResult` the prop `onShowResults: () => void` and change its non-broken `onClick` to `() => { onShowResults(); scrollToResults(); }`. In `DesktopResultBar`, the "Summary" button's `onClick` becomes `() => { onShowResults(); scrollToResults(); }` with the same new prop.
+
+- [ ] **Step 8: Restructure the page**
+
+In `CapacityCalculator.tsx`:
+
+1. Imports: `Section`, `ResultTabs`, `tabPanelProps`, `type ResultTab`, and `SECTIONS`, `sectionOf`, `sectionSummary`, `type SectionId` from `@/app/lib/capacitySections`.
+2. State, under `detailsFor`:
+
+```tsx
+  const [openSection, setOpenSection] = useState<SectionId | null>("buy");
+  const [tab, setTab] = useState<ResultTab>("answer");
+
+  /** Open what holds a field (a section, or the What if tab), then focus it once it has rendered. */
+  const reveal = (field: FormField) => {
+    const section = sectionOf(field);
+    if (section) setOpenSection(section);
+    else setTab("whatif");
+    requestAnimationFrame(() => requestAnimationFrame(() => focusField(field)));
+  };
+  const toggleSection = (id: SectionId) => {
+    setOpenSection((cur) => (cur === id ? null : id));
+    // The section above may fold as this one opens; keep this one's header in view.
+    requestAnimationFrame(() =>
+      document.getElementById(`section-${id}-root`)?.scrollIntoView({
+        block: "nearest",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      }),
+    );
+  };
+  // The blocking errors are what must be findable from a closed section.
+  const sectionHasError = (id: SectionId) => errors.some((e) => sectionOf(e.field) === id);
+```
+
+3. Replace the inputs column's cards with five sections, in this order, keeping each existing card's CONTENT as the section's children:
+
+```tsx
+            {SECTIONS.map(({ id, title }) => (
+              <Section
+                key={id}
+                id={id}
+                title={title}
+                summary={sectionSummary(id, form)}
+                open={openSection === id}
+                onToggle={() => toggleSection(id)}
+                hasError={sectionHasError(id)}
+              >
+                {id === "buy" && <p className="text-sm text-white/50">Developer installments.</p>}
+                {id === "money" && (
+                  <div className="space-y-4">
+                    {/* the "Capital & returns" card's content, then the "What must stay in the fund" card's content */}
+                  </div>
+                )}
+                {id === "payments" && <ScheduleEditor form={form} update={update} />}
+                {id === "loan" && <p className="text-sm text-white/50">No loan.</p>}
+                {id === "extras" && (
+                  <div className="space-y-4">
+                    {/* the "Extra income" card's content, then a "Costs" sub-heading, then the "Extra costs" card's content */}
+                  </div>
+                )}
+              </Section>
+            ))}
+```
+
+The two comments mean: MOVE the existing JSX that is inside those `<Card>`s here verbatim — `CapitalRow`, `RateInput`, the `returnFeePct` field, the `safetyBuffer` and `keepPct` fields for `money`; the income `Segmented`, amount and increase fields, then `<h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">Costs</h3>`, then the two `CostRow`s and their note for `extras`. Delete the comments once moved. The `buy` and `loan` placeholders are replaced in Tasks 8 and 9.
+
+4. Pass the new props: `<LiveResult … onFix={reveal} onShowResults={() => setTab("answer")} />`, `<DesktopResultBar … onFix={reveal} onShowResults={() => setTab("answer")} />`, and `<ErrorSummary … onFix={reveal} />` (add `onFix: (field: FormField) => void` to `ErrorSummary`'s props and call it instead of `focusField`).
+
+5. Replace the results column body (everything inside `<div id="results">` after `DesktopResultBar`) with:
+
+```tsx
+            <div ref={headlineRef}>
+              <ResultTabs value={tab} onChange={setTab} />
+            </div>
+
+            <div {...tabPanelProps(tab)} className={`mt-4 space-y-4 transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
+              {tab === "answer" && (
+                <>
+                  {errors.length > 0 && <ErrorSummary errors={errors} hasResult={shown !== null} onFix={reveal} />}
+                  {/* the existing nothing-affordable Card / Hero branch, unchanged, inside `shown &&` */}
+                </>
+              )}
+              {tab === "time" && showing && shown && (
+                /* the existing "Fund balance over the plan" Card with BalanceChart, unchanged */
+              )}
+              {tab === "years" && showing && shown && (
+                /* the existing "Year by year" Card with YearTable, unchanged */
+              )}
+              {tab === "whatif" && shown && (
+                <div className="space-y-4 xl:grid xl:grid-cols-2 xl:gap-4 xl:space-y-0">
+                  {/* the existing "Test a specific price" Card, then the sensitivity Card, unchanged */}
+                </div>
+              )}
+              {!shown && tab !== "answer" && (
+                <p className="text-sm text-white/50">Fix the inputs to see this.</p>
+              )}
+              <p className="px-1 text-xs text-white/40">
+                Estimates assume a constant return rate. Fund returns vary and are not guaranteed.
+              </p>
+            </div>
+```
+
+As in item 3, the comments mean MOVE the existing JSX verbatim, then delete the comment. Drop the `xl:order-*` / `xl:col-span-*` classes from the moved cards (the tabs replaced that grid) but keep `animate-rise` and the delays. The Show maximum / Show tested switch stays in the test card; the chart and table titles keep their "— testing …" suffix so the other tabs say which price they show.
+
+6. The inputs column's wrapper keeps `space-y-4`; sections sit 12px apart instead: change it to `space-y-3`.
+
+- [ ] **Step 9: Type-check, lint, test, look**
+
+Run: `npx tsc --noEmit -p . && npm run lint && npm test`
+Expected: clean; all tests pass.
+Browser at 360×740 and 1280×800 (dev server in tmux, as in Global Constraints): the page with every section closed is about one screen on desktop; opening "Your money" closes "How you buy" and keeps its header in view; each closed section shows its summary; clearing the starting capital puts a red dot on "Your money" — close it, then tap "Fix" on the phone strip and the section opens with the field focused; Tab reaches the tablist, arrows switch tabs; the reference inputs still read 8,860,000 on the Answer tab; no horizontal scroll at 360px.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/app/lib/capacitySections.ts src/app/lib/capacitySections.test.ts src/app/components/capacity
+git commit -m "Real Estate: folding input sections and result tabs instead of one long page
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
+```
+
+---
+
+### Task 8: "How are you buying?" — the purchase picker and per-kind plan card
 
 **Files:**
 - Create: `src/app/components/capacity/PurchasePicker.tsx`
@@ -1965,7 +2446,8 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 
 **Interfaces:**
 - Consumes: `CapacityForm` fields from Task 5, `PLAN_FIELDS`, `CalcField`, `useFormErrors`, `Segmented`, `Card`.
-- Produces: `default function PurchasePicker({ form, update, currency }: { form: CapacityForm; update: (patch: Partial<CapacityForm>) => void; currency: string })`.
+- Produces: `default function PurchasePicker({ form, update }: { form: CapacityForm; update: (patch: Partial<CapacityForm>) => void })`; `export function ResaleFields({ form, update, currency })` (same prop types plus `currency: string`).
+- Consumes from Task 7: the `buy` and `payments` sections in `CapacityCalculator`.
 
 - [ ] **Step 1: Create the picker**
 
@@ -2007,11 +2489,9 @@ const PER_YEAR: Record<PaymentFrequency, number> = { yearly: 1, quarterly: 4, mo
 export default function PurchasePicker({
   form,
   update,
-  currency,
 }: {
   form: CapacityForm;
   update: (patch: Partial<CapacityForm>) => void;
-  currency: string;
 }) {
   return (
     <div className="space-y-4">
@@ -2044,7 +2524,6 @@ export default function PurchasePicker({
       </fieldset>
 
       {form.purchaseKind === "developer-cash" && <CashFields form={form} update={update} />}
-      {form.purchaseKind === "resale" && <ResaleFields form={form} update={update} currency={currency} />}
     </div>
   );
 }
@@ -2068,7 +2547,8 @@ function CashFields({ form, update }: { form: CapacityForm; update: (patch: Part
   );
 }
 
-function ResaleFields({
+/** The resale's remaining developer balance — shown in the Payments section, where the plan would be. */
+export function ResaleFields({
   form,
   update,
   currency,
@@ -2128,36 +2608,28 @@ function ResaleFields({
 }
 ```
 
-- [ ] **Step 2: Wire it into the calculator, and make the plan card follow the kind**
+- [ ] **Step 2: Wire it into the sections, and make Payments follow the kind**
 
 In `CapacityCalculator.tsx`:
 
-1. Imports: add `import PurchasePicker from "./PurchasePicker";` and `PLAN_FIELDS` to the `@/app/lib/capacityForm` import.
-2. State: under `detailsFor`, add `const [planOpen, setPlanOpen] = useState(false);`.
-3. Directly after `<LiveResult … />`, insert:
+1. Imports: `import PurchasePicker, { ResaleFields } from "./PurchasePicker";` and `PLAN_FIELDS` from `@/app/lib/capacityForm`.
+2. State, under `openSection`: `const [planOpen, setPlanOpen] = useState(false);`.
+3. In the sections map, replace the `buy` placeholder with `{id === "buy" && <PurchasePicker form={form} update={update} />}` and the `payments` line with:
 
 ```tsx
-            <Card title="How are you buying?">
-              <PurchasePicker form={form} update={update} currency={currency} />
-            </Card>
+                {id === "payments" &&
+                  (form.purchaseKind === "resale" ? (
+                    <ResaleFields form={form} update={update} currency={currency} />
+                  ) : form.purchaseKind === "developer-cash" &&
+                    !planOpen &&
+                    !PLAN_FIELDS.some((f) => byField[f] !== undefined) ? (
+                    <PlanSummaryLine form={form} onEdit={() => setPlanOpen(true)} />
+                  ) : (
+                    <ScheduleEditor form={form} update={update} />
+                  ))}
 ```
 
-4. Replace the `<Card title="Payment plan">…</Card>` block with:
-
-```tsx
-            {form.purchaseKind !== "resale" && (
-              <Card title={form.purchaseKind === "developer-cash" ? "The installment alternative" : "Payment plan"}>
-                {form.purchaseKind === "developer-cash" &&
-                !planOpen &&
-                !PLAN_FIELDS.some((f) => byField[f] !== undefined) ? (
-                  <PlanSummaryLine form={form} onEdit={() => setPlanOpen(true)} />
-                ) : (
-                  <ScheduleEditor form={form} update={update} />
-                )}
-              </Card>
-            )}
-```
-
+4. `capacitySections.ts`'s Payments title stays "Payments" for every kind; for a cash purchase the summary already reads "Compared against …".
 5. Add at the bottom of the file:
 
 ```tsx
@@ -2196,7 +2668,7 @@ Expected: no errors.
 
 - [ ] **Step 4: See it**
 
-Start the dev server in tmux (`tmux kill-session -t my-wallet-dev 2>/dev/null; mkdir -p ~/logs; tmux new -d -s my-wallet-dev "npm run dev 2>&1 | tee ~/logs/my-wallet-dev.log"`), sign in, open `/real-estate` at 390×844 and at 1280×800. Check: three cards stack on the phone and stack in the narrow desktop column; Tab reaches the group and arrow keys move the selection with a visible focus ring; Resale shows the three fields and "That's 1,250,000 EGP a year, at the end of each year." for 5,000,000 / 4 / yearly; Developer cash shows the discount and the one-line plan with Edit; a resale result appears with plan fields left blank.
+Start the dev server in tmux (`tmux kill-session -t my-wallet-dev 2>/dev/null; mkdir -p ~/logs; tmux new -d -s my-wallet-dev "npm run dev 2>&1 | tee ~/logs/my-wallet-dev.log"`), sign in, open `/real-estate` at 390×844 and at 1280×800. Check: in "How you buy", three cards stack on the phone and in the narrow desktop column; Tab reaches the group and arrow keys move the selection with a visible focus ring; with Resale, the Payments section shows the three fields and "That's 1,250,000 EGP a year, at the end of each year." for 5,000,000 / 4 / yearly, and its closed summary reads "5,000,000 left · 4 years · yearly"; Developer cash shows the discount in "How you buy" and the one-line plan with Edit in Payments; a resale result appears with plan fields left blank.
 
 - [ ] **Step 5: Commit**
 
@@ -2210,7 +2682,7 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 
 ---
 
-### Task 8: The loan card
+### Task 9: The loan card
 
 **Files:**
 - Create: `src/app/components/capacity/Explain.tsx`
@@ -2218,7 +2690,7 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 - Modify: `src/app/components/capacity/CapacityCalculator.tsx`
 
 **Interfaces:**
-- Consumes: form fields (Task 5), `LoanSummary` (Task 1), `decliningRateFromFlat` (Task 2), `CheckRow`, `Segmented`, `CalcField`, `useFormErrors`, `formatMoney`, `formatPct`.
+- Consumes: the `loan` section (Task 7), form fields (Task 5), `LoanSummary` (Task 1), `decliningRateFromFlat` (Task 2), `CheckRow`, `Segmented`, `CalcField`, `useFormErrors`, `formatMoney`, `formatPct`.
 - Produces:
   - `default function Explain({ term, children }: { term: string; children: ReactNode })`
   - `default function LoanCard({ form, update, loan, atPrice, currency }: { form: CapacityForm; update: (patch: Partial<CapacityForm>) => void; loan: LoanSummary | null; atPrice: "max" | "test"; currency: string })`
@@ -2438,18 +2910,18 @@ export default function LoanCard({
 
 - [ ] **Step 3: Place it after the plan**
 
-In `CapacityCalculator.tsx`, import `LoanCard` and, directly after the plan card block from Task 7, add:
+In `CapacityCalculator.tsx`, import `LoanCard` and replace the `loan` section's placeholder (Task 7) with:
 
 ```tsx
-            <Card title="Bank loan">
-              <LoanCard
-                form={form}
-                update={update}
-                loan={showing?.loan ?? null}
-                atPrice={showing === tested ? "test" : "max"}
-                currency={currency}
-              />
-            </Card>
+                {id === "loan" && (
+                  <LoanCard
+                    form={form}
+                    update={update}
+                    loan={showing?.loan ?? null}
+                    atPrice={showing === tested ? "test" : "max"}
+                    currency={currency}
+                  />
+                )}
 ```
 
 `showing` and `tested` are declared above the JSX already; no reordering is needed.
@@ -2458,7 +2930,7 @@ In `CapacityCalculator.tsx`, import `LoanCard` and, directly after the plan card
 
 Run: `npx tsc --noEmit -p . && npm run lint`
 Expected: clean.
-In the browser (dev server from Task 7): turn the loan on → the examples notice shows; type in Flat rate → it disappears; with a resale (10M max region) the line reads "… / month for 5 years · … interest in total · ≈ 20.3% on a declining balance (at the maximum)"; set lending ratio to 0 → the bank terms open themselves and the error shows; each "What's …?" opens with Enter/Space.
+In the browser (dev server from Task 8): turn the loan on → the examples notice shows; type in Flat rate → it disappears; with a resale (10M max region) the line reads "… / month for 5 years · … interest in total · ≈ 20.3% on a declining balance (at the maximum)"; set lending ratio to 0 → the bank terms open themselves and the error shows; each "What's …?" opens with Enter/Space.
 
 - [ ] **Step 5: Commit**
 
@@ -2472,7 +2944,7 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 
 ---
 
-### Task 9: Results — "Your deal", the verdict, the comparison, check this deal
+### Task 10: Results — "Your deal", the verdict, the comparison, check this deal
 
 **Files:**
 - Create: `src/app/components/capacity/DealSummary.tsx`
@@ -2481,7 +2953,7 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 - Modify: `src/app/components/capacity/LiveResult.tsx`
 
 **Interfaces:**
-- Consumes: `compare` (Task 4), `describeDeal`, `loanVerdict` (Task 6), `purchaseOf`.
+- Consumes: the `answer` and `whatif` panels (Task 7), `compare` (Task 4), `describeDeal`, `loanVerdict` (Task 6), `purchaseOf`.
 - Produces:
   - `default function DealSummary({ inputs, sim, atPrice, currency }: { inputs: CalculatorInputs; sim: SimulationResult; atPrice: "max" | "test"; currency: string })`
   - `default function LoanComparison({ inputs, comparison, currency }: { inputs: CalculatorInputs; comparison: Comparison; currency: string })`
@@ -2654,21 +3126,16 @@ In `CapacityCalculator.tsx`:
 ```
 
 3. `LiveResult`: pass `loanDifference={comparison ? (comparison.withLoan.maxPrice ?? 0) - (comparison.withoutLoan.maxPrice ?? 0) : null}`.
-4. Inside the headline block, after the `Hero` / nothing-affordable branch (still inside the `shown &&` wrapper), add:
+4. In the `answer` panel (Task 7), after the `Hero` / nothing-affordable branch, add — in this order, so the verdict follows the figure and the sentences follow the verdict:
 
 ```tsx
-                  {comparison && <div className="mt-4"><LoanComparison inputs={shown} comparison={comparison} currency={currency} /></div>}
-```
-
-5. In the lower grid, as its first child (before the test card), add:
-
-```tsx
-                {showing && (
-                  <div className="xl:order-0 xl:col-span-2">
+                  {shown && comparison && <LoanComparison inputs={shown} comparison={comparison} currency={currency} />}
+                  {shown && showing && (
                     <DealSummary inputs={shown} sim={showing} atPrice={showing === tested ? "test" : "max"} currency={currency} />
-                  </div>
-                )}
+                  )}
 ```
+
+5. The Answer tab is now hero → verdict and comparison → "Your deal", one short column. Nothing is added to the other tabs here except the test card's changes below (it lives in the `whatif` panel).
 
 6. The test card: title `"Check this deal"`; `CalcField` `label={kind === "resale" ? "Cash to the seller" : kind === "developer-cash" ? "Installment price" : "Price"}`; `hint="Leave blank to only see the maximum."`; and below the existing `Verdict`, when `comparison?.tested`, add:
 
@@ -2719,7 +3186,7 @@ In `LiveResult.tsx`, add the prop `loanDifference?: number | null` and, after th
 
 Run: `npx tsc --noEmit -p . && npm run lint`
 Expected: clean.
-Browser at 360×740 and 1280×800: with a resale + loan, the verdict line sits under the hero, the two-column comparison does not scroll sideways at 360px, "Your deal" reads three sentences with green/red/white figures, entering a cash-to-seller price in "Check this deal" shows both a "With the loan" and a "Without the loan" verdict, and the sticky strip shows "+1.2M with the loan" (or similar). With the loan off, the page looks exactly as before plus "Your deal".
+Browser at 360×740 and 1280×800: with a resale + loan, on the Answer tab the verdict line sits under the hero, the two-column comparison does not scroll sideways at 360px, "Your deal" reads three sentences with green/red/white figures, entering a cash-to-seller price in "Check this deal" (What if tab) shows both a "With the loan" and a "Without the loan" verdict, and the sticky strip shows "+1.2M with the loan" (or similar). With the loan off, the page looks exactly as before plus "Your deal".
 
 - [ ] **Step 6: Commit**
 
@@ -2733,7 +3200,7 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 
 ---
 
-### Task 10: The chart and the year table with a loan
+### Task 11: The chart and the year table with a loan
 
 **Files:**
 - Modify: `src/app/components/capacity/BalanceChart.tsx`
@@ -2907,7 +3374,7 @@ Claude-Session: https://claude.ai/code/session_01FdyRQ5zAbUGgG6encTvJiQ"
 
 ---
 
-### Task 11: Document it and verify end to end
+### Task 12: Document it and verify end to end
 
 **Files:**
 - Modify: `CLAUDE.md`
@@ -2927,6 +3394,7 @@ Replace the footnote `Estimates assume a constant return rate. Fund returns vary
 In `CLAUDE.md`:
 - *Layout*: under `lib/capacity/`, add `purchase.ts  # the three ways of buying -> up-front + developer stream; horizon` and `loan.ts  # flat-rate loan terms, pledge held/released, declining equivalent`; under `app/lib/`, add `dealText.ts  # describeDeal / loanVerdict — the deal in sentences; tested`; under `components/capacity/`, add `PurchasePicker, LoanCard, Explain, DealSummary, LoanComparison`.
 - *Real Estate — buying capacity*: change "The one feature so far" paragraph's first line to mention the three purchase kinds and the loan, and add a subsection **"Buying three ways, and the bank loan (2026-10-12)"** summarising: price meaning per kind (table from the spec), the pledge is locked and earns `rate/12` net, the buffer reads SPENDABLE only, the horizon is max(developer, loan) and `compare` uses the deal's horizon for both sides, flat-rate maths and the nominal declining equivalent, `withoutLoan` turns cash into the plan, inputs without `purchase`/`loan` are the original calculator so `REFERENCE` is untouched. Point at the spec path.
+- *The page's shape*: add a short subsection — inputs are five folding sections (one open at a time, summaries from `capacitySections.ts`), results are four tabs (`ResultTabs`), every "go to field" goes through `reveal(field)`; Mark asked for it not to be one long page (2026-10-12).
 - *Running*: update the test count line ("65 tests in `src/lib/capacity`") to the number `npx vitest run src/lib/capacity` now reports.
 - *Deliberately missing*: replace "The calculator models no borrowing" with "The calculator models a bank loan against certificates only (flat rate, no fees, no early repayment, no fixed approved cap); no property appreciation, no rent, constant rates".
 
