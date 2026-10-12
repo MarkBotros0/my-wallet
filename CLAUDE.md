@@ -15,9 +15,11 @@ is EGX Analytics' (`D:\Projects\egx-api`), the admin role is not.
 **Transactions** tab is the expense/income ledger (see *Transactions — the
 ledger*); the **Clients** tab tracks what each client paid this year and
 income carries a **God's share** that is settled from `/gods-share` (see
-*Clients & God's share*); the **Real Estate** tab holds the installment
-buying-capacity calculator — three ways of buying, optionally against a bank
-loan on pledged certificates (see *Real Estate — buying capacity*). **Home** is
+*Clients & God's share*); the **Real Estate** tab holds the buying-capacity
+calculator — money entered once, up to six plans (developer or resale, each
+optionally against a bank loan on pledged certificates) compared side by side,
+answering either "the most I can pay" or "the yearly top-up I need" (see
+*Real Estate — buying capacity*). **Home** is
 the earnings dashboard (see *Home — earnings and God's share*). Design
 records live in `docs/superpowers/specs/`.
 
@@ -50,12 +52,12 @@ src/
   lib/account/             # PURE credentials validator + test (register route AND form)
   lib/capacity/            # PURE maths for the buying-capacity calculator + its tests
     types.ts               #   the contract: fractions, plain currency numbers
-    rates.ts               #   effective <-> nominal, monthly/daily rates
+    rates.ts               #   effective <-> nominal (v1 migration), monthly/daily rates
     schedule.ts            #   down payment + yearly shares -> fraction due per month
     simulate.ts            #   the month-by-month engine, validateInputs
-    purchase.ts            #   the three ways of buying -> up-front + developer stream; horizon
+    purchase.ts            #   developer plan / resale -> up-front + stream; horizon
     loan.ts                #   flat-rate loan terms, pledge held/released, declining equivalent
-    solve.ts               #   maxFeasiblePrice (binary search), sensitivity
+    solve.ts               #   maxFeasiblePrice, minTopUp, solvePlans, bestPlan, sensitivity, compare
     fixtures.ts            #   the spec's reference scenario (8,860,000)
   server/                  # server-only — never import from a client component
     db.ts                  # pool singleton, initDb (schema), getDb()
@@ -86,10 +88,12 @@ src/
     lib/chartLabels.ts     # placeLabels — direct labels by priority, clear of each other and the data
     lib/authStore.ts       # localStorage + presence cookie + useSyncExternalStore store
     lib/today.ts           # useToday — the phone's date, null on the server
-    lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
-    lib/capacityFormStore.ts # remembers the form per device (same pattern as authStore)
-    lib/dealText.ts        # describeDeal / loanVerdict — the deal in sentences; tested
-    lib/capacitySections.ts # the five input sections: summaries + field -> section; tested
+    lib/capacityForm.ts    # form v2 (money + plans, strings, %) -> CalculatorInputs; v1 migration; tested
+    lib/capacityFormStore.ts # remembers the form per device; updateMoney / updatePlan / setPlans
+    lib/usePlanResults.ts  # parse + solve every plan (memoised on what the solver reads)
+    lib/planAnswer.ts      # a plan's answer in one label + value (card, strip, header); tested
+    lib/moneyFlow.ts       # flowGroups / dealBreakdown — "where the money goes", tone rules; tested
+    lib/dealText.ts        # describeDeal / loanVerdict / topUpSentence — the deal in sentences; tested
     lib/format.ts          # formatMoney (whole units) / formatAmount (keeps piastres) / compact / pct / share
     lib/initials.ts        # initials — a name's monogram ("Acme Corp" → "AC"); tested
     lib/numbers.ts         # parseNumber — "5,000,000" → 5000000
@@ -101,11 +105,11 @@ src/
     components/clients/    # ClientsPage (hero + roster), YearSplitBar, ClientPage, ClientForm
     components/godsShare/  # GodsSharePage
     components/home/       # HomePage + ClientBars (by client), MonthlyChart (over the year)
-    components/capacity/   # CapacityCalculator + PurchasePicker, LoanCard, Explain, DealSummary,
-                           #   LoanComparison, Section, ResultTabs, RateInput, ScheduleEditor, BalanceChart,
-                           #   YearTable, SensitivityTable, formErrors (per-field errors),
-                           #   LiveResult (the phone's sticky answer strip + the desktop's
-                           #   condensed bar, DesktopResultBar)
+    components/capacity/   # CapacityCalculator (steps, mode, reveal) + StepBar, MoneyStep, PlansStep,
+                           #   PlanCard, PlanEditor, CompareStep, PlanRanking, ResultTabs, AnswerPanel,
+                           #   MoneyFlowList, DealSummary, BalanceChart, YearTable, WhatIfPanel,
+                           #   SensitivityTable, LoanComparison, LoanCard, ScheduleEditor, Explain,
+                           #   formErrors (per-field errors), LiveResult (phone strip + DesktopAnswer)
 public/
   manifest.json, sw.js, icons/wallet-*
 ```
@@ -463,78 +467,153 @@ given, not money lost, so Home no longer has a number that can go negative
 
 ## Real Estate — buying capacity
 
-The calculator. It weighs three ways of buying (developer
-installments, developer cash, resale) and, for any of them, a bank loan against
-pledged certificates. Spec: the user's savings sit in a fund; they buy an
-off-plan property on installments, keep the unpaid balance invested, and pay
-from the fund plus extra income. The calculator finds the MAXIMUM price whose
-plan never drops the fund below a safety buffer (and, optionally, ends with a
-chosen share of the starting capital still in the fund).
+The calculator. Mark's savings sit in a fund or a bank certificate; he buys a
+property (off-plan from a developer, or a resale), keeps the unpaid balance
+invested and pays from the savings plus extra income. **Money is entered
+once; the ways of buying are a list of plans** (1–6, `MAX_PLANS`) weighed
+side by side. Specs: `docs/superpowers/specs/2026-10-13-calculator-redesign-design.md`
+(the screen, the model) over `2026-10-12-bank-loan-and-resale-design.md` (the
+loan maths; its screen is superseded). The code is the truth.
 
-### Buying three ways, and the bank loan (2026-10-12)
+### Two questions (modes)
 
-Spec: `docs/superpowers/specs/2026-10-12-bank-loan-and-resale-design.md`
-(the record; the code is the truth). One generalised engine — every case is
-an up-front payment at month 0, an optional developer stream after it, and an
-optional loan funding part of the up-front payment. No second engine.
+A segmented switch at the top: **Max price** — the largest list price whose
+plan never drops spendable savings below the safety buffer (and ends with
+`minKeptShare` of the capital, if asked) — or **Yearly top-up** — for a
+price the user enters per plan, the least amount added every year on top of
+income. `minTopUp` returns `{ topUp, simulation, blocker }`: `0` when already
+covered; `topUp: null` with a blocker when no amount helps — `"day-one"`
+(the up-front payment or pledge needs more than the savings) or `"too-early"`
+(a payment falls due before the first top-up arrives). A top-up lands with
+the income's frequency and grows with the income's raise. A blank price in
+top-up mode is a question not yet asked, never an error (`planAnswer.ts`).
 
-`price` means something different per `PurchaseKind`, and the solver still
-binary-searches it:
+### Money once
 
-| kind | up-front at month 0 | developer payments after | extra costs × |
+`MoneyForm`: currency, starting capital, **savings vehicle**, income
+(amount, frequency, yearly raise), return fee/tax, safety buffer, keep %.
+The vehicle is a real choice, not a rate label: a **fund** compounds an
+effective yearly yield (`monthlyRate × (1 − fee)`); a **certificate** pays
+its quoted annual rate in monthly instalments (`rate / 12 × (1 − fee)`).
+Both live in `CalculatorInputs.effectiveAnnualRate` with
+`savingsVehicle?: "fund" | "certificate"` (absent = fund). The nominal +
+compounding entry is gone; a saved nominal rate migrates to its effective
+equivalent. The returns line is named for the vehicle ("Fund returns" /
+"Certificate interest").
+
+### A plan
+
+`PlanForm` → `CalculatorInputs` with `purchase.kind` `developer-plan` or
+`resale`. Extra costs (maintenance, finishing) and the bank loan belong to
+the **plan**; income, savings and safety rules to the money.
+
+| kind | up-front at month 0 | after | extra costs × |
 |---|---|---|---|
-| developer-plan | `downPayment × price` | `buildInstallmentShares(schedule) × price` | price |
-| developer-cash | `price × (1 − cashDiscount)` | none (`schedule` is only the no-loan alternative) | cash price |
+| developer-plan | `net × downPayment` | `buildInstallmentShares(schedule) × net` | net |
 | resale | `price` (cash to the seller) | `resaleRemaining` (fixed, not scaled) over `resaleYears` at `resaleFrequency`, equal split | price + resaleRemaining |
 
-Developer-cash `price` is the INSTALLMENT price, so its maximum compares
-directly with the plan's.
+`net = price × (1 − discount)` and **`price` is always the LIST price**, so
+plans' maxima compare. **There is no developer-cash kind**: the unified
+developer plan is "discount % off, % paid now, the rest over N years" —
+10% now / 0% off is installments, 100% now / 25% off is the cash deal
+(`downPayment = 1` is valid: no stream). v1 forms with `developer-cash`
+migrate to a developer plan with 100% now and that discount. In top-up
+mode a resale plan's `price` is the cash to the seller; in max mode the
+solver finds it.
 
-- **The loan** is the Egyptian loan secured by a deposit. `loan = share ×
-  upFront` (a % of the up-front payment, so the solver scales it with the
-  price); `pledge = loan ÷ lendingRatio` moves from spendable to HELD at
-  month 0. Held money is locked and earns `held × certificateRate / 12` a
+- **The loan** (per plan) is the Egyptian loan secured by a deposit.
+  `loan = share × upFront`; `pledge = loan ÷ lendingRatio` moves from
+  spendable to HELD at month 0 and earns `held × certificateRate / 12` a
   month, NET (no `returnFee`), into spendable. Release: `at-end` returns it
   all at month `n`; `gradual` holds `remaining principal ÷ lendingRatio`.
 - **The buffer reads SPENDABLE only** — pledged money cannot cover an
-  emergency. Feasible = fund payment + pledge fit the capital AND spendable ≥
-  buffer every month AND final spendable ≥ keep target. A test pins that a
-  deal feasible on spendable + held but not spendable alone is infeasible.
+  emergency. A test pins that a deal feasible on spendable + held but not
+  spendable alone is infeasible.
 - **Flat-rate maths:** interest = principal × flatRate × years, equal monthly
-  installments, principal repaid `loan/n` a month. The declining-balance
-  equivalent (bisection on an annuity) is NOMINAL annual (monthly rate × 12),
-  how banks quote it, so offers compare like for like.
-- **Horizon** = `max(developer years, loan years if on)` (`purchase.ts`).
-  Past a stream the months carry only growth and income. `compare(inputs,
-  price?)` simulates BOTH sides over the DEAL's horizon so the two final
-  balances are on the same date; `withoutLoan` turns the loan off and
-  developer-cash into the developer plan.
-- **Backwards compatible:** inputs without `purchase`/`loan` are the original
-  calculator, so `REFERENCE` (8,860,000) is untouched. `normalizeForm`
-  defaults a saved form to developer installments, loan off.
-- **Words, not just numbers:** `app/lib/dealText.ts::describeDeal` and
-  `loanVerdict` are pure and tested; the "Your deal" card and the verdict
-  line render them. The loan card carries one notice, "The rates below are examples —
-  enter your bank's offer.", while its rates are unedited, so a default is
-  never read as a quote.
+  installments. The declining-balance equivalent is NOMINAL annual, how
+  banks quote it. The loan card says "The rates below are examples — enter
+  your bank's offer." while `loanRatesEdited` is false.
+- **One horizon across plans.** A plan's horizon = `max(developer/resale
+  years, loan years)`; `solvePlans` simulates every plan over
+  `commonHorizon` (the longest), so final balances are on the same date and
+  the keep target bites at the same moment. Only plans that parse (and, in
+  top-up mode, carry a price) are compared. `bestPlan` = highest maximum /
+  lowest top-up, first wins a tie; the UI tags it "Best" in words, not
+  colour. `compare` / `compareTopUp` run a plan with and without its loan
+  (`withoutLoan` only switches the loan off) over the deal's horizon.
+- **Backwards compatible:** inputs without `purchase`/`loan`/`topUp` are the
+  original calculator, so `REFERENCE` (8,860,000) is untouched.
 
-### The page's shape — sections and tabs (2026-10-12)
+### Every flow is separate (gross), and it reconciles
 
-Mark asked for the calculator not to be one long page. **Inputs are five
-folding sections, one open at a time** (How you buy · Your money · Payments ·
-Bank loan · Income & costs; `Section.tsx`), each closed row showing a
-one-line summary and a red dot when a field inside is bad — summaries and the
-field -> section map are pure in `capacitySections.ts`. **Results are four
-tabs** (`ResultTabs`, an ARIA tablist): Answer · Over time · Year by year ·
-What if; only the active panel renders. **Every "go to field" goes through
-`reveal(field)`** — the error summary, the phone strip's Fix and the desktop
-bar's Fix — which opens the field's section (or the What if tab for the test
-price) before focusing it. New content goes into a section or a tab, never
-another full-width card down the page.
+The up-front payment is recorded in full as money out and the loan as money
+in — not netted (the maths is unchanged; only what is recorded). `MonthPoint`
+carries returns, certificateInterest, income, topUp, installment, extraCost,
+bankInstallment, released, held; month 0 carries `upFront`, `loanReceived`,
+`pledged`. `YearSummary` rows reconcile:
+
+```
+opening + returns + certificateInterest + income + topUp + loanReceived + released
+        − upFront − pledged − installments − bankInstallments − extraCosts = closing
+```
+
+`upFront`/`loanReceived`/`pledged` are **year-1 flows** (year 1 opens on the
+starting capital, and its `lowest` includes month 0, so a day-one breach
+flags the year). `SimulationResult.totals: FlowTotals` sums the eleven flows
+over the deal: `startingCapital + Σin − Σout = finalBalance`. Tests pin both
+identities for every kind, with and without a loan.
+
+### Where the money goes — `app/lib/moneyFlow.ts`
+
+`flowGroups(flows, ctx)` turns a `FlowTotals` or a `YearSummary` into five
+headed groups — *Your savings* (start, returns) · *What you add* (income,
+yearly top-up) · *Developer* / *Seller and developer* (paid now,
+installments) · *Bank loan* (loan received, bank installments, locked as
+guarantee, guarantee returned, interest on the guarantee) · *Extra costs* —
+zero rows hidden. `start + Σ subtotals = end` (a subtotal is the full net of
+its rows, held ones included). **Colour rule:** rows are `in` (`gain`),
+`out` (`loss`) or `held` (the pledge, white); **held money never colours a
+subtotal** — `group.tone` comes from in/out rows only (`groupTone`), and a
+subtotal whose sign the guarantee flipped (a "+" over net-out money, or the
+reverse) is neutral. `MoneyFlowList` (`FLOW_TONE`, `SUBTOTAL_TONE`) is the
+one renderer; the Answer tab, the year cards, the year table and the chart
+tooltip all read these groups.
+
+### The page's shape — three steps, four tabs
+
+A **step bar** (① Your money · ② Plans · ③ Compare; any step is a tap away,
+a red dot on a step holding a bad field; `CapacityForm.step`) and the mode
+switch sit at the top; on a desktop they and the answer are one sticky
+header (`DesktopAnswer`), on a phone `LiveResult` is a strip stuck under
+the nav (`top` reads `--top-nav-clearance`) on every step, tapping goes to
+③ or to the first bad field. **① `MoneyStep`** — four `StepCard`s (what you
+have, where it sits, what you add, how safe). **② `PlansStep`** — a
+`PlanCard` per plan (name, one-line terms, live answer; Edit / Duplicate /
+Delete, not on the last; "Add a plan" hidden at 6) with `PlanEditor` opened
+inline, one at a time (opening selects that plan): buying from · what you
+pay · price (top-up mode only) · bank loan · extra costs. **③ `CompareStep`**
+— `PlanRanking` (each row a button selecting the plan; a plan that cannot be
+answered says what it needs and goes to fix it), then the selected plan's
+`ResultTabs` (ARIA tablist; only the active panel renders): **Answer**
+(`AnswerPanel`: the figure — or the blocker sentence — then Where the money
+goes, then `DealSummary` sentences) · **Over time** (`BalanceChart`) ·
+**Year by year** (`YearTable`) · **What if** (`WhatIfPanel`: return-rate
+sensitivity as max price or top-up, `LoanComparison` when the plan has a
+loan, and in max mode "Check a price"). Plans are named automatically
+(`planName`: "10% now · 8 yrs", "All now · 25% off", "Resale · 5M over 4
+yrs", "+ loan") until the user types one. **Every "go to field" goes
+through `reveal(field)`** in `CapacityCalculator` — the error summary, the
+strip's Fix, the ranking's fix — which sets the step (and opens the plan
+editor, or the What if tab for the test price) before `focusField`. New
+content goes into a step or a tab, never another full-width card.
+
+**The first load shows two example plans** ("10% now · 8 years" and "All
+now · 25% off") labelled as examples until `examplesEdited`.
+
 
 ### The maths is pure and lives in `src/lib/capacity`
 
-No React, no Next, no DB — so it is unit-tested directly (`npm test`, 113
+No React, no Next, no DB — so it is unit-tested directly (`npm test`, 140
 tests in `src/lib/capacity`) and could run on the server unchanged. Two conventions, stated in
 `types.ts`, that every function follows:
 
@@ -544,11 +623,11 @@ tests in `src/lib/capacity`) and could run on the server unchanged. Two conventi
 
 Timing rules, all load-bearing and all pinned by tests:
 
-- Month 0: spendable = capital − the fund's share of the up-front payment
-  (the up-front payment minus the loan) − the pledge, which is held, not
-  spendable. Each month, in order: growth →
-  income → payments. Growth is `monthlyRate(effective) × (1 − fee)` and is
-  earned on a POSITIVE balance only (no return on money you don't have; the
+- Month 0: spendable = capital + loan − the (gross) up-front payment − the
+  pledge, which is held, not spendable. Each month, in order: growth →
+  income (+ top-up) → payments. Fund growth is `monthlyRate(effective) ×
+  (1 − fee)`, certificate growth `rate / 12 × (1 − fee)`, earned on a
+  POSITIVE balance only (no return on money you don't have; the
   model does not borrow).
 - Yearly installments and yearly income land at the END of the year (month 12,
   24, …); quarterly at months 3/6/9/12; monthly every month. Extra costs
@@ -557,8 +636,9 @@ Timing rules, all load-bearing and all pinned by tests:
   AND spendable ≥ buffer every month (month 0 included) AND final spendable
   ≥ `minKeptShare × capital`.
 - `maxFeasiblePrice` is a binary search on a 1,000 grid — feasibility is
-  monotonic in price, and a test asserts it. `sensitivity` re-solves at
-  −6/−3/0/+3 points, clamped at 0%.
+  monotonic in price, and a test asserts it; `minTopUp` searches the same
+  grid (monotonic in the top-up). `sensitivity` / `topUpSensitivity`
+  re-solve at −6/−3/0/+3 points, clamped at 0%.
 - **`isFeasible` is `simulate(...).feasible`, deliberately.** A leaner second
   walk for the solver would be a second place the rules are spelled.
 
@@ -568,34 +648,58 @@ buffer 500,000 → **8,860,000 exactly** — every cash flow lands at a year end
 so the monthly engine agrees with yearly steps to the pound (final balance
 500,991). If this number moves, something in the timing rules moved.
 
-### The UI keeps strings; the engine gets numbers
+### The UI keeps strings; the engine gets numbers (form v2)
 
 `lib/capacityForm.ts` holds the form as the user typed it (strings, percents)
-and `parseForm` converts once. That is what lets "1." or "" sit in a field
-without a fight; validation messages come from the same pass and replace the
-results column until the form parses. The form persists per device in
-localStorage (`wallet.capacity.form`) through `capacityFormStore.ts` —
-`useSyncExternalStore`, server snapshot = defaults — and `normalizeForm` fills
-any field a saved copy lacks, so adding a field is safe for existing devices.
+and `parseForm` converts once, so "1." or "" can sit in a field without a
+fight. `CapacityForm = { version: 2, mode, step, money, plans[],
+selectedPlanId, examplesEdited }`. `parseForm` returns `moneyErrors`, per
+plan `{ inputs | null, price, errors, byField }`, the flat `errors`
+(blocking: money first, then plans in list order, each in PAGE order) and
+`byField` (first message per field, including the ones that never block: the
+currency code and the test price). **Hidden fields never block** — a
+resale field on a developer plan, the loan fields with the loan off, the
+price in max mode.
 
-**Custom schedules are blocked, not corrected**, until down payment + years
-total exactly 100% (±0.01 pp for float noise); switching to custom prefills
-the equal split so the user edits from a valid plan. The rate can be entered
-as an effective yield OR nominal + compounding, and switching carries the
-value across so the number never jumps.
+**Field ids** are `money.<field>` and `plan.<id>.<field>`; a custom year is
+`plan.<id>.year-N`. DOM ids come from `formErrors.tsx::fieldId` (dots become
+dashes: `capacity-plan-p1-nowPct`), and `focusField` finds the input by it.
+
+**Persistence:** localStorage `wallet.capacity.form` through
+`capacityFormStore.ts` — `useSyncExternalStore`, server snapshot = defaults.
+`useCapacityForm()` returns `[form, update, reset]` (`update` is shallow);
+**edit through the helpers**, which read the CURRENT snapshot so two quick
+edits never undo each other: `updateMoney(patch)`, `updatePlan(id, patch)`
+(marks `examplesEdited`), `setPlans(plans, selectedId?)` (add / duplicate /
+delete; keeps the selection on a plan that exists). `normalizeForm` pads and
+clamps (0 plans -> the defaults, > 6 -> the first 6), validates a v2 copy
+field by field, and **migrates a v1 form** (no `version`): its money plus
+ONE plan "Plan 1" — `resale` stays resale, `developer-cash` becomes a
+developer plan with 100% now and the cash discount, a nominal rate becomes
+its effective equivalent (`effectiveFromNominal`), a v1 loan comes across on
+the plan. Anything else is the defaults.
+
+`usePlanResults(form)` is the one place plans are solved: it parses, hands
+`solvePlans` only the plans that parse (and, in top-up mode, carry a price),
+and memoises on a string of exactly what the solver reads — typing a plan's
+name or the currency re-parses but never re-solves. `planAnswer.ts` words a
+plan's answer once (label, value, tone `answer | muted | problem`, `missing`)
+for its card, the phone strip and the desktop header, so they cannot disagree.
+
+**Custom schedules are blocked, not corrected**, until paid now + years total
+exactly 100% (±0.01 pp for float noise); switching to custom prefills the
+equal split (`equalYearPcts`). `resizeYearPcts` keeps the year inputs the
+length of `planYears`.
 
 ### Validation: the engine says WHAT, the form says WHERE, the hook says WHEN
 
 - **The input rules are spelled once, in the engine.** `simulate.ts::
   inputProblems` (and `schedule.ts::scheduleProblems`) return `{ field,
   message }` where `field` is a path into `CalculatorInputs`
-  (`"income.annualIncrease"`, `"schedule.yearShares"`, …); `validateInputs`
-  is just its messages. `parseForm` adds nothing but "is it a number" and
-  maps engine fields onto form fields (`FormField`; custom-year inputs are
-  `year-0`, `year-1`, …). It returns `errors` (blocking, in PAGE order — the
-  engine's order is not the page's) and `byField` (every problem, first
-  message per field, including the two that never block: the currency code
-  and the test price).
+  (`"income.annualIncrease"`, `"schedule.yearShares"`, `"topUp"`,
+  `"purchase.discount"`, …); `validateInputs` is just its messages.
+  `parseForm` adds nothing but "is it a number" and maps engine fields onto
+  form fields (per plan, by its id).
 - **`formErrors.tsx::useVisibleErrors` decides when a message shows:** after
   the field has been left (validate on blur — clearing a field to retype it
   must not flash "required"), or immediately for a field the user is not in
@@ -605,31 +709,10 @@ value across so the number never jumps.
   `FormErrorsProvider`, not props. `Field`'s `error` flows to the input as
   `aria-invalid` / `aria-describedby` through a context — a call site passes
   `error` to the Field and nothing to the input. Two narrow fields in a row
-  (`CostRow`, `CapitalRow`) share ONE error line beneath the pair via
-  `errorId`.
-- **The last valid result stays on screen, dimmed**, while the form does not
-  parse (`lastInputs`, adjusted during render — not an effect), with the
-  error summary above it; each summary item focuses its field
-  (`focusField`, centred, respecting reduced motion).
-- **On a phone `LiveResult` sticks under the nav** (`top` reads
-  `--top-nav-clearance`, `lg:hidden`) and shows the maximum as it moves, or
-  "N inputs need fixing" — tapping scrolls to `#results` (which carries a
-  `scroll-margin-top` for the nav) or to the first bad field.
-- **On a desktop `DesktopResultBar` does the same job** (`hidden lg:block`,
-  zero height in flow at the top of the results column): a glass bar that
-  fades in only once the tab strip (`headlineRef`) has
-  scrolled under the nav (`useScrolledPast`, an IntersectionObserver whose
-  root inset is the measured height of `nav.sticky`, never a restated 61).
-  Maximum · ends with · % kept, or the error count with a "Fix" that
-  focuses the first bad field; "Summary" scrolls back to `#results`.
-- **From `xl:` the results use the width** (`xl:max-w-7xl`). The tabs
-  replaced the old single-column stack and its `xl:order-*` grid: the test
-  card is now "Check this deal" under What if, beside "If the fund's return
-  changes" at `xl:`. Cards arrive with `animate-rise` 40ms apart; the hero
-  figure is 60px at `lg:` and its six tiles are one row at `xl:`, without
-  the currency code (the figure states it once). When nothing is affordable
-  and no price is being tested, Over time and Year by year say so in one
-  line and point to What if.
+  share ONE error line beneath the pair via `errorId`.
+- **A plan that cannot be solved shows no stale number:** its card and the
+  strip say "N inputs need fixing" (or ask for a price); the Fix tap runs
+  `reveal` on the first blocking field.
 - Money inputs use `NumberInput group`: on blur a parsed value is rewritten
   with thousands separators; `parseNumber` strips them again.
 
@@ -640,14 +723,17 @@ value across so the number never jumps.
 ONE dashed line (a dash means threshold, and it is one); the same path is
 redrawn in `loss` through a clip wherever it dips under the buffer;
 crosshair + tooltip on hover/touch with the value first, then that month's
-flows (return, income, installment, cost — `MonthPoint` carries them);
+flows under the same group headings as "Where the money goes" (`MonthPoint`
+carries every stream); with a loan the pledge is a second, muted band above
+the spendable line (the line and the buffer read spendable only);
 keyboard arrows move the crosshair; the year table is the table-view twin.
 It measures its container with a `ResizeObserver` so axis text stays 11px
 on a phone instead of scaling down with a viewBox.
 
 **It is annotated with the moments that decide the answer** (2026-09-21):
-the line starts at the capital and drops by the down payment at month 0
-(`Start 5M · down payment −824K`); a marker + label on the tightest month
+the line starts at the capital and drops by what is paid now at month 0
+(`Start 5M · paid now −824K`; with a loan, the loan received and the
+guarantee locked are named separately, never netted); a marker + label on the tightest month
 (`Lowest 501K · month 48`), or on the first breach for a failing price
 (`Runs out · month 71`, in `loss`); the end (`Ends 1.5M`), which becomes
 `Ends 1.5M = keep target` when it lands on the target — the keep target is a
@@ -668,24 +754,18 @@ it — so a phone shows the few that fit rather than a pile-up. Widths are
 estimated (`textWidth`, 0.6em per character) because SVG text cannot be
 measured before it is laid out.
 
-**The year table is a story, not a grid** (reshaped 2026-09-21). On a phone
-each year is one card read top to bottom: Opening → **Paid this year** (down
-payment, installments, extra costs; zero rows hidden) → **Covered by** (fund
-returns, income, and *From savings* for the rest — or *Left in savings* when
-returns + income covered more than was paid) → Closing → Lowest. `paid` and
-`fromSavings` (= opening − closing) are derived in `YearTable` from the row;
-the engine's reconciliation test is what keeps them honest. To make the
-down payment visible, **it is a year-1 flow**: `YearSummary.downPayment` is
-the plan's down payment on year 1 and 0 after, year 1's `opening` is the
-starting capital (before the payment), and year 1's `lowest` includes the
-month-0 balance, so a down payment that alone breaches the buffer flags
-the year. On a desktop the table lays the same ledger across one row, with
-a Down payment column and no savings column (opening and closing are side
-by side already). **Colour follows the money rule:** returns and income are
-`gain` (money in), the down payment, installments and costs are `loss`
-(money out); balances and the savings row are positions and stay neutral;
-a year whose lowest balance breaches the buffer is tinted `loss` — a real
-bad outcome.
+**The year table is the same story as the Answer tab** (`YearTable`,
+reshaped 2026-10-13): each year opens, every group moves it by its own
+subtotal (Savings · Added · Developer · Bank · Costs — never netted into one
+another) and it closes: `opening + Σ group subtotals = closing`, from
+`flowGroups(year, ctx)`. On a phone each year is one card read top to bottom,
+every group with its rows and subtotal, then closing and lowest. On a
+desktop each year is one row of subtotals, and a button on the row opens its
+line items. The up-front payment, loan and pledge are year-1 flows. **Colour
+follows the money rule** (see *Where the money goes*): rows `gain` in /
+`loss` out / guarantee neutral, subtotals by the money that really moved;
+balances are positions and stay neutral; a year whose lowest balance
+breaches the buffer is tinted `loss` and says so in words.
 
 **Preview-pane artefact worth knowing:** this page is large enough that React
 streams it in a Suspense boundary (`<div hidden id="S:0">`) and reveals it via

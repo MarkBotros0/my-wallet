@@ -2,6 +2,8 @@
 
 _Approved in chat 2026-10-12. This file is the record; the implementation is the truth._
 
+_Screen superseded by `2026-10-13-calculator-redesign-design.md` (money once, plans as a list, developer-cash folded into the developer plan); the loan maths below still stands._
+
 ## Purpose
 
 Today the Real Estate calculator answers one case: buy from a developer on
