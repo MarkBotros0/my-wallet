@@ -193,32 +193,158 @@ becomes developer-plan — and `compare(inputs, price?)` returning both sides'
 `maxFeasiblePrice` and, when a price is given, both simulations, all over
 the deal's horizon. `sensitivity` is unchanged.
 
-## The screen
+Two pure helpers turn results into words for the screen, in
+`src/app/lib/` beside `capacityForm.ts` (they format, so they are UI-side,
+but take no React): `describeDeal(inputs, sim)` → the "Your deal"
+sentences as `{ text, amount?, tone: "in" | "out" | "held" }` parts, and
+`loanVerdict(comparison)` → `{ kind: "loan-better" | "no-loan-better" |
+"same", difference, interest, certificateInterest, discountSaved }`.
+`SimulationResult.loan` also carries `netCost` = total interest −
+certificate interest earned on the pledge.
 
-- **"How you buy"** `Segmented` at the top of the form: Developer plan ·
-  Developer cash · Resale. Developer cash adds a cash-discount field (the
-  plan fields stay, labelled as the installment alternative). Resale
-  replaces the price wording with "Cash to the seller" and adds remaining
-  balance, years and frequency.
-- **"Bank loan"** `CheckRow` opens: borrow % of the up-front payment · flat
-  rate (with "≈ X% declining" beneath) · years · lending ratio ·
-  certificate rate · release (`Segmented`: At the end / Gradually).
-- Persisted per device; `normalizeForm` defaults to Developer plan, loan
-  off, so existing devices see today's page unchanged.
-- **Results:** the hero is the deal's maximum as today. When the loan is on,
-  a **comparison card** sits under it — With loan · Without loan — max
-  price, lowest balance, ends with, total interest; the better max is not
-  coloured (a position, not money moving). "Test a specific price" becomes
-  "Check this deal" and runs both sides.
-- **Chart:** the line stays the spendable fund; with a loan, a second
-  solid muted line is spendable + held, so the locked money is visible but
-  not mistaken for spendable. The buffer stays the ONE dashed line. A
-  label marks the release (`Pledge released 6M`) via `placeLabels`.
-- **Year table:** new rows under the existing story — *Pledged* /
-  *Released*, *Certificate interest* (`gain`), *Bank installments*
-  (`loss`) — zero rows hidden as today. Desktop gains the same columns
-  when a loan is on.
-- `LiveResult` / `DesktopResultBar` show the deal's maximum, unchanged.
+## The screen — made easy on purpose
+
+The maths is the hard part; the page must not be. Mark asked for this to be
+"super user friendly", so the screen is designed around five rules (from
+the ui-ux-pro-max pass, 2026-10-12: `progressive-disclosure`,
+`input-helper-text`, `redundant-entry`, `data-density`,
+`screen-reader-summary`) and one test: **someone who has never heard the
+word "pledge" can enter a bank's offer and read the answer correctly.**
+
+### 1. Ask how they buy, in words, before any number
+
+The form opens with **"How are you buying?"**: three tappable choice cards
+(radio group, `pressable surface`, ≥ 44px, the selected one `accent`
+bordered), each a title and one plain line:
+
+- **From the developer, in installments** — "Down payment now, the rest
+  over the developer's plan." *(today's calculator, the default)*
+- **From the developer, in cash** — "Pay the cash price up front, usually
+  at a discount."
+- **Resale** — "Pay a seller in cash and take over what they still owe the
+  developer."
+
+On a phone they stack; at `md:` they sit in a row. The rest of the form
+re-labels itself per choice ("Property price" → "Installment price" /
+"Cash to the seller") so a field always says what it means in THIS deal.
+Switching keeps every mode's values — flipping back and forth to compare
+costs nothing to retype.
+
+### 2. Only the fields this deal needs, in the order a person thinks
+
+- Developer cash: the plan card collapses to one line — "Compared against
+  the developer's plan: 10% down · 8 years · yearly — Edit" — because it
+  is only the no-loan alternative. The cash discount sits next to the
+  price with its result beneath: "Cash price 7,000,000 (30% off)".
+- Resale: "What's left with the developer" — remaining amount, years,
+  frequency — with the derived line "That's 1,250,000 a year, at the end
+  of each year." The custom year-shares editor is not offered for resale
+  (equal split only), so there is nothing to total to 100%.
+
+### 3. The loan is an add-on card, closed until asked for
+
+"**Pay with a bank loan**" is a card with a switch and one line: "Borrow
+against your certificates and pay the bank monthly instead." Off by
+default; on opens it, with fields in decision order:
+
+1. **Borrow** — % of the up-front payment, with the amount beneath
+   ("= 9,000,000 of the 10,000,000 you pay up front").
+2. **Flat rate** and **years** — beneath them, the offer read back:
+   "**240,000 / month** for 5 years · 5,400,000 interest in total ·
+   ≈ 21% on a declining balance". This line is the main reason the
+   flat rate stops being confusing.
+3. **Certificate rate** — beneath: "Your 9,000,000 in certificates pays
+   you **82,500 / month** while it is pledged."
+4. **Bank terms** — a collapsed one-liner with the defaults as a
+   sentence: "Bank lends 100% of the certificates · releases them when the
+   loan is paid off — Change". Lending ratio and release mode (`Segmented`:
+   When the loan ends / As I repay) live behind it; most people never
+   open it.
+
+Each new term has a "What's this?" disclosure (`<details>`, keyboard and
+screen-reader native, never a hover tooltip) with two sentences:
+*Pledge* ("Savings you put in certificates at the bank as security. They
+keep paying interest but you cannot spend them until the bank releases
+them."), *Flat rate* ("Interest on the full loan for every year, even as
+you repay it — so 12% flat costs about what 21% does on a normal loan."),
+*Lending ratio*, *Release*.
+
+Rates entered here are prefilled as examples and labelled "Example —
+enter your bank's offer" until the user edits one, so a default is never
+mistaken for a quote.
+
+### 4. Read the deal back in plain words
+
+Above the results, a **"Your deal"** card states the whole plan as short
+sentences, built live by a PURE, tested helper (`describeDeal`) from the
+same simulation the numbers come from:
+
+> You pay the seller **10,000,000** today — **9,000,000** from the bank,
+> **1,000,000** from savings.
+> **9,000,000** of savings is locked as the bank's guarantee, earning
+> **82,500 / month**; it comes back after **5 years**.
+> Then you pay the bank **240,000 / month** for 5 years, and the developer
+> **1,250,000** at the end of each year for 4 years.
+
+Money in `gain`, money out `loss`, locked money white — the colour rule
+carries the meaning of every figure in the sentence. This card is the
+answer to "did I enter it right?" before anyone reads a chart.
+
+### 5. Lead the results with a verdict, then the evidence
+
+When the loan is on, the results open with **one verdict line** above the
+comparison, also from a pure tested helper (`loanVerdict`):
+
+- "**The loan lets you afford 1,200,000 more.**"
+- "**Without the loan you can afford 400,000 more.**"
+- "**Same either way** — the loan only changes when you pay."
+
+and one "why" line under it, e.g. "Interest 5,400,000 · your certificates
+earn back 4,950,000 while pledged" (plus "· the cash discount saves …" for
+a developer cash purchase). The verdict is
+neutral white — a comparison is a position, not money moving.
+
+Then the **comparison card**: two columns, With loan · Without loan, the
+same five rows on both sides — Max you can afford · Lowest balance ·
+Ends with · Interest paid · Net cost of the loan (interest − certificate
+interest). Two columns of short figures fit a 360px phone; the row labels
+sit once on the left. The larger side of each row is marked with a small
+"higher" tag, not colour.
+
+"Test a specific price" becomes **"Check this deal"**: enter the price (or
+cash to the seller) and both sides recompute at it — feasible or not,
+with the first month it fails.
+
+### 6. Charts and tables stay readable with more going on
+
+- **Chart:** one line is still the hero — the money you can spend. With a
+  loan, a second thinner, muted (`white/30`) line shows "including the
+  locked certificates", labelled directly at its end (no legend, two
+  series). The buffer stays the ONE dashed line. A marker labels the
+  release ("Certificates released · 9M"). The chart's `aria-label` is
+  the verdict plus the lowest point, as a sentence.
+- **Year card (phone):** a third group, **Bank**, after Paid and Covered
+  by: Bank installments (`loss`), Certificate interest (`gain`), Locked /
+  Released. Zero rows stay hidden, so a no-loan plan reads exactly as
+  today.
+- **Desktop table:** the bank columns appear only when the loan is on.
+
+### 7. Feedback stays where the eye is
+
+- Phone `LiveResult` strip: "Max 8.9M" plus, with the loan on, a small
+  "+1.2M with loan" / "−400K with loan" beside it.
+- Validation keeps today's machinery (`useVisibleErrors`, blur-then-show,
+  the summary that focuses its field). New messages say what to do, not
+  what is wrong: "Lending ratio must be more than 0% — most banks lend
+  90–100%."
+- A deal that cannot work says why in the deal's terms: "The bank's
+  guarantee plus your share of the cash (10,000,000) is more than your
+  savings (8,000,000)."
+
+### Persistence
+
+Per device, as today; `normalizeForm` defaults to developer installments
+with the loan off, so existing devices open on the page they know.
 
 ## Testing
 
@@ -247,8 +373,13 @@ In `src/lib/capacity` (Vitest):
 - `compare` measures both sides over the same horizon; `withoutLoan` turns
   developer-cash into developer-plan.
 
-Form tests in `lib/capacityForm` for the new fields' parsing, defaults and
-field mapping.
+Form tests in `lib/capacityForm` for the new fields' parsing, defaults,
+field mapping and per-mode relabelling; a saved pre-loan form normalises to
+developer installments with the loan off. `describeDeal` and `loanVerdict`
+are tested on the resale example (10M to the seller, 9M loan at 12% flat
+over 5 years, 11% certificates, 5M left over 4 years: 240,000 / month,
+5,400,000 interest, 82,500 / month back) and on each verdict kind, with
+"same" inside one solver step (1,000).
 
 ## Out of scope
 
