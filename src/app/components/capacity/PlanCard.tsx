@@ -60,6 +60,7 @@ export default function PlanCard({
         >
           {answer.value}
         </div>
+        {answer.fit && <FitLine fit={answer.fit} />}
       </div>
     </div>
   );
@@ -126,5 +127,15 @@ function Action({
     >
       {children}
     </button>
+  );
+}
+
+/** "Your price … fits — … to spare" / "… is … over": the asking price against the maximum. */
+export function FitLine({ fit, className = "" }: { fit: { text: string; fits: boolean }; className?: string }) {
+  return (
+    // A span, not a <p>: it also sits inside the ranking's row buttons.
+    <span className={`mt-1 block text-[11px] leading-snug ${fit.fits ? "text-white/60" : "text-loss"} ${className}`}>
+      {fit.text}
+    </span>
   );
 }

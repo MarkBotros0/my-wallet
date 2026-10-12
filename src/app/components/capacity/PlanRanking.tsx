@@ -1,6 +1,7 @@
 "use client";
 
 import type { PlanAnswer } from "@/app/lib/planAnswer";
+import { FitLine } from "./PlanCard";
 
 export interface RankedPlan {
   id: string;
@@ -74,6 +75,7 @@ export default function PlanRanking({
                   {p.answer.value}
                   {broken && <span aria-hidden> ›</span>}
                 </span>
+                {p.answer.fit && <FitLine fit={p.answer.fit} />}
                 {p.gap && <span className="mt-0.5 block text-[11px] text-white/40">{p.gap}</span>}
               </span>
             </button>

@@ -19,6 +19,17 @@ export interface PlanAnswer {
   tone: "answer" | "muted" | "problem";
   /** Why there is no figure: the money step is broken, this plan is, or it has no price yet. */
   missing: "money" | "plan" | "price" | null;
+  /** Max mode with an asking price: whether it fits under the maximum, in words. */
+  fit: { text: string; fits: boolean } | null;
+}
+
+/** The asking price held up against the maximum (null max = nothing affordable). */
+export function priceFit(price: number, max: number | null, currency: string): { text: string; fits: boolean } {
+  const money = (n: number) => formatMoney(n, currency);
+  if (max === null) return { text: `Your price ${money(price)} doesn't fit`, fits: false };
+  return price <= max
+    ? { text: `Your price ${money(price)} fits — ${money(max - price)} to spare`, fits: true }
+    : { text: `Your price ${money(price)} is ${money(price - max)} over`, fits: false };
 }
 
 /**
@@ -44,6 +55,7 @@ export function planAnswer({
   errors,
   moneyBroken,
   currency,
+  price = null,
 }: {
   plan: PlanForm;
   mode: Mode;
@@ -52,19 +64,22 @@ export function planAnswer({
   errors: FormError[];
   moneyBroken: boolean;
   currency: string;
+  /** The plan's parsed price; in max mode, the asking price to check. */
+  price?: number | null;
 }): PlanAnswer {
   const label = mode === "max" ? (plan.kind === "resale" ? "Most to the seller" : "Most you can pay") : "Add each year";
-  if (moneyBroken) return { label, value: "Fix your money first", tone: "problem", missing: "money" };
-  if (realErrors(plan, mode, errors).length > 0) return { label, value: "Fix this plan", tone: "problem", missing: "plan" };
-  if (isBlankPrice(plan, mode)) return { label, value: "Enter a price", tone: "muted", missing: "price" };
-  if (result === null) return { label, value: "—", tone: "muted", missing: null };
+  if (moneyBroken) return { label, value: "Fix your money first", tone: "problem", missing: "money", fit: null };
+  if (realErrors(plan, mode, errors).length > 0) return { label, value: "Fix this plan", tone: "problem", missing: "plan", fit: null };
+  if (isBlankPrice(plan, mode)) return { label, value: "Enter a price", tone: "muted", missing: "price", fit: null };
+  if (result === null) return { label, value: "—", tone: "muted", missing: null, fit: null };
 
   if (mode === "max") {
+    const fit = price === null ? null : priceFit(price, result.price, currency);
     return result.price === null
-      ? { label, value: "Nothing affordable", tone: "muted", missing: null }
-      : { label, value: formatMoney(result.price, currency), tone: "answer", missing: null };
+      ? { label, value: "Nothing affordable", tone: "muted", missing: null, fit }
+      : { label, value: formatMoney(result.price, currency), tone: "answer", missing: null, fit };
   }
-  if (result.topUp === null) return { label, value: "Can't work", tone: "problem", missing: null };
-  if (result.topUp <= 0) return { label, value: "0 — covered", tone: "answer", missing: null };
-  return { label, value: formatMoney(result.topUp, currency), tone: "answer", missing: null };
+  if (result.topUp === null) return { label, value: "Can't work", tone: "problem", missing: null, fit: null };
+  if (result.topUp <= 0) return { label, value: "0 — covered", tone: "answer", missing: null, fit: null };
+  return { label, value: formatMoney(result.topUp, currency), tone: "answer", missing: null, fit: null };
 }

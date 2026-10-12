@@ -12,8 +12,8 @@ import ScheduleEditor from "./ScheduleEditor";
 /**
  * One plan's terms, opened inline under its card. Read top to bottom it is
  * the deal as a developer or seller would state it: who you buy from, the
- * price (top-up mode only — max mode finds it), what you pay and when, a
- * bank loan if any, and the extra costs. The two optional parts — the loan
+ * price (required in top-up mode; an optional asking price in max mode),
+ * what you pay and when, a bank loan if any, and the extra costs. The two optional parts — the loan
  * and the extra costs — stay one line until switched on or opened.
  */
 export default function PlanEditor({
@@ -66,22 +66,20 @@ export default function PlanEditor({
       <Group title="What you pay">
         {resale ? (
           <>
-            {mode === "topUp" ? (
-              <CalcField
-                field={at("price")}
-                label="Cash to the seller"
-                hint="What you pay the seller now, on top of what is still owed."
-                group
-                value={plan.price}
-                onChange={(v) => onChange({ price: v })}
-                suffix={currency}
-                placeholder="e.g. 3,000,000"
-              />
-            ) : (
-              <p className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs leading-snug text-white/60">
-                The calculator finds the most you can pay the seller.
-              </p>
-            )}
+            <CalcField
+              field={at("price")}
+              label={mode === "topUp" ? "Cash to the seller" : "Cash to the seller (optional)"}
+              hint={
+                mode === "topUp"
+                  ? "What you pay the old owner now, on top of what is still owed to the developer."
+                  : "The old owner's asking price. Leave blank and the calculator finds the most you can pay them; enter it to see whether it fits."
+              }
+              group
+              value={plan.price}
+              onChange={(v) => onChange({ price: v })}
+              suffix={currency}
+              placeholder="e.g. 3,000,000"
+            />
             <CalcField
               field={at("resaleRemaining")}
               label="What's still owed to the developer"
@@ -117,18 +115,20 @@ export default function PlanEditor({
           </>
         ) : (
           <>
-            {mode === "topUp" && (
-              <CalcField
-                field={at("price")}
-                label="Price"
-                hint="The developer's list price, before any discount."
-                group
-                value={plan.price}
-                onChange={(v) => onChange({ price: v })}
-                suffix={currency}
-                placeholder="e.g. 9,000,000"
-              />
-            )}
+            <CalcField
+              field={at("price")}
+              label={mode === "topUp" ? "Price" : "Price (optional)"}
+              hint={
+                mode === "topUp"
+                  ? "The developer's list price, before any discount."
+                  : "The developer's list price. Leave blank and the calculator finds the most you can pay; enter it to see whether it fits."
+              }
+              group
+              value={plan.price}
+              onChange={(v) => onChange({ price: v })}
+              suffix={currency}
+              placeholder="e.g. 9,000,000"
+            />
             <CalcField
               field={at("discountPct")}
               label="Discount"
@@ -141,7 +141,7 @@ export default function PlanEditor({
             <ScheduleEditor
               plan={plan}
               onChange={onChange}
-              nowHint={mode === "topUp" && price !== null ? payLine(plan, price, currency) : undefined}
+              nowHint={price !== null ? payLine(plan, price, currency) : undefined}
             />
           </>
         )}

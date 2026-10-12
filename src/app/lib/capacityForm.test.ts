@@ -168,7 +168,17 @@ describe("parseForm — plans", () => {
     }
   });
 
-  it("requires a price in top-up mode and ignores it in max mode", () => {
+  it("keeps an asking price optional and soft in max mode", () => {
+    const set = parseForm(withPlan("p1", { price: "10,000,000" }, form({ mode: "max" })));
+    expect(set.plans[0].price).toBe(10_000_000);
+    expect(set.errors).toEqual([]);
+    const bad = parseForm(withPlan("p1", { price: "abc" }, form({ mode: "max" })));
+    expect(bad.errors).toEqual([]);
+    expect(bad.plans[0].inputs).not.toBeNull();
+    expect(bad.byField["plan.p1.price"]).toBe("Price must be a number of 0 or more.");
+  });
+
+  it("requires a price in top-up mode and leaves it optional in max mode", () => {
     expect(parseForm(form({ mode: "max" })).plans[0].price).toBeNull();
     const top = parseForm(form({ mode: "topUp" }));
     expect(top.errors).toEqual([

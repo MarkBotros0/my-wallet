@@ -8,6 +8,8 @@ import { formatMoney } from "@/app/lib/format";
 import { dealBreakdown } from "@/app/lib/moneyFlow";
 import DealSummary, { Sentence } from "./DealSummary";
 import MoneyFlowList from "./MoneyFlowList";
+import { FitLine } from "./PlanCard";
+import { priceFit } from "@/app/lib/planAnswer";
 
 /**
  * The Answer tab: one figure first (the most you can pay, or the yearly
@@ -19,6 +21,7 @@ export default function AnswerPanel({
   resale,
   inputs,
   result,
+  askingPrice,
   sim,
   horizon,
   incomeFrequency,
@@ -29,6 +32,8 @@ export default function AnswerPanel({
   resale: boolean;
   inputs: CalculatorInputs;
   result: PlanResult;
+  /** Max mode: the asking price entered on the plan, held up against the maximum. */
+  askingPrice: number | null;
   sim: SimulationResult | null;
   horizon: number;
   incomeFrequency: "monthly" | "yearly";
@@ -56,6 +61,15 @@ export default function AnswerPanel({
           {safety}
         </Hero>
       );
+    if (askingPrice !== null) {
+      const fit = priceFit(askingPrice, result.price, currency);
+      hero = (
+        <div>
+          {hero}
+          <FitLine fit={fit} className="!mt-3 !text-sm" />
+        </div>
+      );
+    }
   } else {
     const price = result.price ?? 0;
     const forPrice = `For ${resale ? "cash to the seller of" : "a price of"} ${money(price)}.`;

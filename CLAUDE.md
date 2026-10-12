@@ -517,9 +517,12 @@ plans' maxima compare. **There is no developer-cash kind**: the unified
 developer plan is "discount % off, % paid now, the rest over N years" —
 10% now / 0% off is installments, 100% now / 25% off is the cash deal
 (`downPayment = 1` is valid: no stream). v1 forms with `developer-cash`
-migrate to a developer plan with 100% now and that discount. In top-up
-mode a resale plan's `price` is the cash to the seller; in max mode the
-solver finds it.
+migrate to a developer plan with 100% now and that discount. A resale plan's
+`price` is the cash to the seller. Top-up mode requires the price; in max
+mode the solver finds the maximum and the price is an OPTIONAL asking price
+(Mark asked where to type the old owner's price, 2026-10-13):
+`planAnswer.fit` / `priceFit` say "Your price X fits — Y to spare" or "is Z
+over" on the card, the ranking and the Answer hero (`FitLine`).
 
 - **The loan** (per plan) is the Egyptian loan secured by a deposit.
   `loan = share × upFront`; `pledge = loan ÷ lendingRatio` moves from
@@ -598,7 +601,7 @@ have, where it sits, what you add, how safe). **② `PlansStep`** — a
 `PlanCard` per plan (name, one-line terms, live answer; Edit / Duplicate /
 Delete, not on the last; "Add a plan" hidden at 6) with `PlanEditor` opened
 inline, one at a time (opening selects that plan): buying from · what you
-pay · price (top-up mode only) · bank loan · extra costs. **③ `CompareStep`**
+pay · price (required in top-up mode, optional asking price in max mode) · bank loan · extra costs. **③ `CompareStep`**
 — `PlanRanking` (each row a button selecting the plan; a plan that cannot be
 answered says what it needs and goes to fix it), then the selected plan's
 `ResultTabs` (ARIA tablist; only the active panel renders): **Answer**
@@ -669,9 +672,9 @@ selectedPlanId, examplesEdited }`. `parseForm` returns `moneyErrors`, per
 plan `{ id, inputs | null, errors, price, testPrice }`, the flat `errors`
 (blocking: money first, then plans in list order, each in PAGE order) and
 `byField` (first message per field, including the ones that never block: the
-currency code and the test price). **Hidden fields never block** — a
-resale field on a developer plan, the loan fields with the loan off, the
-price in max mode.
+currency code, the test price and the max-mode asking price). **Hidden
+fields never block** — a resale field on a developer plan, the loan fields
+with the loan off.
 
 **Field ids** are `money.<field>` and `plan.<id>.<field>`; a custom year is
 `plan.<id>.year-N`. DOM ids come from `formErrors.tsx::fieldId` (dots become

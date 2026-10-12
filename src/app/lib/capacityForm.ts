@@ -55,7 +55,7 @@ export interface PlanForm {
   /** Blank = the automatic name (`planName`). */
   name: string;
   kind: PlanKind;
-  /** Top-up mode: the list price (developer) / cash to the seller (resale). */
+  /** The list price (developer) / cash to the seller (resale): required in top-up mode, an optional asking price in max mode. */
   price: string;
   discountPct: string;
   nowPct: string;
@@ -240,7 +240,7 @@ export interface ParsedPlan {
   id: string;
   inputs: CalculatorInputs | null;
   errors: FormError[];
-  /** Top-up mode price, parsed (null when blank or bad). */
+  /** The price, parsed (null when blank or bad); in max mode, the asking price to check. */
   price: number | null;
   testPrice: number | null;
 }
@@ -407,11 +407,17 @@ function parsePlan(p: PlanForm, money: ParsedMoney["base"], mode: Mode): PlanPar
   // stale value can never block the result.
   const quiet = (raw: string, fallback: number) => parseNumber(raw) ?? fallback;
 
+  // Top-up mode asks about this price, so it is required. In max mode it is
+  // optional: the asking price to hold up against the maximum — never blocking.
   let price: number | null = null;
+  const priceBlank = p.price.trim() === "";
+  const priceN = priceBlank ? null : parseNumber(p.price);
   if (mode === "topUp") {
-    const n = p.price.trim() === "" ? null : parseNumber(p.price);
-    if (n === null || n < 0) errors.push({ field: at("price"), message: "Enter the price to check." });
-    else price = n;
+    if (priceN === null || priceN < 0) errors.push({ field: at("price"), message: "Enter the price to check." });
+    else price = priceN;
+  } else if (!priceBlank) {
+    if (priceN === null || priceN < 0) soft.push({ field: at("price"), message: "Price must be a number of 0 or more." });
+    else price = priceN;
   }
 
   const nowPct = resale ? quiet(p.nowPct, 0) : required("nowPct", p.nowPct, "Payment now");

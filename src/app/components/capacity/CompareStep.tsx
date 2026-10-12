@@ -67,6 +67,7 @@ export default function CompareStep({
       errors: parsed.plans.find((p) => p.id === plan.id)?.errors ?? [],
       moneyBroken,
       currency,
+      price: parsed.plans.find((p) => p.id === plan.id)?.price ?? null,
     });
 
   /** What a plan that cannot be answered needs, as the field to go to. */
@@ -144,6 +145,7 @@ export default function CompareStep({
               plan={selected}
               inputs={selectedParsed.inputs}
               testPrice={selectedParsed.testPrice}
+              askingPrice={selectedParsed.price}
               result={results[selected.id]!}
               horizon={horizon}
               incomeFrequency={form.money.incomeFrequency}
@@ -197,6 +199,7 @@ function Detail({
   plan,
   inputs: parsedInputs,
   testPrice,
+  askingPrice,
   result,
   horizon,
   incomeFrequency,
@@ -208,6 +211,8 @@ function Detail({
   plan: PlanForm;
   inputs: CalculatorInputs;
   testPrice: number | null;
+  /** The plan's own price: in max mode, the asking price the Answer holds up against the maximum. */
+  askingPrice: number | null;
   result: PlanResult;
   horizon: number;
   incomeFrequency: "monthly" | "yearly";
@@ -233,6 +238,7 @@ function Detail({
         resale={resale}
         inputs={inputs}
         result={result}
+        askingPrice={askingPrice}
         sim={sim}
         horizon={horizon}
         incomeFrequency={incomeFrequency}

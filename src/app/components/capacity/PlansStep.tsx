@@ -90,6 +90,7 @@ export default function PlansStep({
               errors: parsedPlan?.errors ?? [],
               moneyBroken,
               currency,
+              price: parsedPlan?.price ?? null,
             })}
             best={plans.length > 1 && best === plan.id}
             editing={editing}

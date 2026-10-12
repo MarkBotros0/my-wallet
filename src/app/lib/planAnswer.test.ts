@@ -28,6 +28,18 @@ describe("planAnswer", () => {
     expect(planAnswer({ ...base, plan: newPlan("p2", { kind: "resale" }), result: null }).label).toBe("Most to the seller");
   });
 
+  it("max mode: an asking price is held up against the maximum", () => {
+    const plan = newPlan("p1", { kind: "resale" });
+    const at = (price: number | null, max: number | null) => planAnswer({ ...base, plan, price, result: result({ price: max }) }).fit;
+    expect(at(null, 10_375_000)).toBeNull();
+    expect(at(10_000_000, 10_375_000)).toEqual({ text: "Your price 10,000,000 EGP fits — 375,000 EGP to spare", fits: true });
+    expect(at(10_375_000, 10_375_000)?.fits).toBe(true);
+    expect(at(11_000_000, 10_375_000)).toEqual({ text: "Your price 11,000,000 EGP is 625,000 EGP over", fits: false });
+    expect(at(5_000_000, null)).toEqual({ text: "Your price 5,000,000 EGP doesn't fit", fits: false });
+    // Top-up mode answers the price itself; there is nothing to hold it against.
+    expect(planAnswer({ ...base, mode: "topUp", plan, price: 9e6, result: result({ price: 9e6, topUp: 1 }) }).fit).toBeNull();
+  });
+
   it("top-up mode: an amount, covered, or can't work", () => {
     const plan = newPlan("p1", { price: "9,000,000" });
     const topUp = { ...base, mode: "topUp" as const, plan };
