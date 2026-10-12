@@ -8,7 +8,7 @@ import {
   type IncomeFrequency,
   type SimulationResult,
 } from "@/lib/capacity";
-import { parseForm, type CapacityForm, type FormError, type FormField } from "@/app/lib/capacityForm";
+import { PLAN_FIELDS, parseForm, type CapacityForm, type FormError, type FormField } from "@/app/lib/capacityForm";
 import { useCapacityForm } from "@/app/lib/capacityFormStore";
 import { SECTIONS, sectionOf, sectionSummary, type SectionId } from "@/app/lib/capacitySections";
 import { formatMoney, formatPct } from "@/app/lib/format";
@@ -16,6 +16,7 @@ import BalanceChart from "./BalanceChart";
 import { CalcField, FormErrorsProvider, fieldId, focusField, useFormErrors, useVisibleErrors } from "./formErrors";
 import LiveResult, { DesktopResultBar, useScrolledPast } from "./LiveResult";
 import ResultTabs, { tabPanelProps, type ResultTab } from "./ResultTabs";
+import PurchasePicker, { ResaleFields } from "./PurchasePicker";
 import RateInput from "./RateInput";
 import ScheduleEditor from "./ScheduleEditor";
 import Section from "./Section";
@@ -50,6 +51,7 @@ export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
   const [detailsFor, setDetailsFor] = useState<"max" | "test">("max");
   const [openSection, setOpenSection] = useState<SectionId | null>("buy");
+  const [planOpen, setPlanOpen] = useState(false);
   const [tab, setTab] = useState<ResultTab>("answer");
   const headlineRef = useRef<HTMLDivElement | null>(null);
   const pastHeadline = useScrolledPast(headlineRef);
@@ -150,7 +152,7 @@ export default function CapacityCalculator() {
                 onToggle={() => toggleSection(id)}
                 hasError={sectionHasError(id)}
               >
-                {id === "buy" && <p className="text-sm text-white/50">Developer installments.</p>}
+                {id === "buy" && <PurchasePicker form={form} update={update} />}
                 {id === "money" && (
                   <div className="space-y-4">
                     <CapitalRow form={form} update={update} />
@@ -185,7 +187,16 @@ export default function CapacityCalculator() {
                     />
                   </div>
                 )}
-                {id === "payments" && <ScheduleEditor form={form} update={update} />}
+                {id === "payments" &&
+                  (form.purchaseKind === "resale" ? (
+                    <ResaleFields form={form} update={update} currency={currency} />
+                  ) : form.purchaseKind === "developer-cash" &&
+                    !planOpen &&
+                    !PLAN_FIELDS.some((f) => byField[f] !== undefined) ? (
+                    <PlanSummaryLine form={form} onEdit={() => setPlanOpen(true)} />
+                  ) : (
+                    <ScheduleEditor form={form} update={update} />
+                  ))}
                 {id === "loan" && <p className="text-sm text-white/50">No loan.</p>}
                 {id === "extras" && (
                   <div className="space-y-4">
@@ -663,6 +674,33 @@ function CostRow({
         />
       </div>
       {error && <FieldError id={errorId}>{error}</FieldError>}
+    </div>
+  );
+}
+
+/**
+ * A cash purchase still carries the developer's plan — it is what "without
+ * the loan" is compared against — but it is not what the user is deciding,
+ * so it sits as one line until asked for. A plan with a problem is always
+ * shown open, so its error is never hidden.
+ */
+function PlanSummaryLine({ form, onEdit }: { form: CapacityForm; onEdit: () => void }) {
+  const freq = { yearly: "yearly", quarterly: "quarterly", monthly: "monthly" }[form.frequency];
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-sm text-white/60">
+        Compared against the developer&apos;s plan:{" "}
+        <span className="text-white">
+          {form.downPaymentPct || "0"}% down · {form.planYears} years · {freq}
+        </span>
+      </p>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="min-h-[44px] shrink-0 cursor-pointer rounded-lg px-3 text-xs font-medium text-accent transition-colors hover:bg-white/5"
+      >
+        Edit
+      </button>
     </div>
   );
 }
