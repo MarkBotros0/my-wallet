@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { monthlyRate } from "./rates";
 import { REFERENCE } from "./fixtures";
 import { inputProblems, simulate, validateInputs } from "./simulate";
-import type { CalculatorInputs } from "./types";
+import { maxFeasiblePrice } from "./solve";
+import type { CalculatorInputs, LoanInput, PurchaseInput } from "./types";
 
 const withInputs = (over: Partial<CalculatorInputs>): CalculatorInputs => ({ ...REFERENCE, ...over });
 
@@ -18,7 +19,18 @@ describe("simulate — month 0", () => {
   it("starts with capital minus the down payment, with no flows of its own", () => {
     const r = simulate(REFERENCE, 8_000_000);
     expect(r.downPayment).toBe(800_000);
-    expect(r.monthly[0]).toEqual({ month: 0, balance: 4_200_000, returns: 0, income: 0, installment: 0, extraCost: 0 });
+    expect(r.monthly[0]).toEqual({
+      month: 0,
+      balance: 4_200_000,
+      returns: 0,
+      income: 0,
+      installment: 0,
+      extraCost: 0,
+      certificateInterest: 0,
+      bankInstallment: 0,
+      released: 0,
+      held: 0,
+    });
   });
 
   it("carries each month's flows on its point, reconciling to the balance and the year rows", () => {
@@ -26,7 +38,10 @@ describe("simulate — month 0", () => {
     for (let m = 1; m < r.monthly.length; m++) {
       const p = r.monthly[m];
       const prev = r.monthly[m - 1].balance;
-      expect(p.balance).toBeCloseTo(prev + p.returns + p.income - p.installment - p.extraCost, 6);
+      expect(p.balance).toBeCloseTo(
+        prev + p.returns + p.certificateInterest + p.income - p.installment - p.extraCost - p.bankInstallment + p.released,
+        6,
+      );
     }
     for (const y of r.years) {
       const months = r.monthly.filter((p) => p.month > (y.year - 1) * 12 && p.month <= y.year * 12);
@@ -311,5 +326,177 @@ describe("validateInputs", () => {
   it("keeps validateInputs as the messages of inputProblems", () => {
     const bad = withInputs({ startingCapital: -5, safetyBuffer: -1 });
     expect(validateInputs(bad)).toEqual(inputProblems(bad).map((p) => p.message));
+  });
+});
+
+const LOAN: LoanInput = {
+  enabled: true,
+  share: 0.9,
+  flatRate: 0.12,
+  years: 5,
+  lendingRatio: 1,
+  certificateRate: 0.11,
+  release: "at-end",
+};
+const RESALE: PurchaseInput = {
+  kind: "resale",
+  cashDiscount: 0,
+  resaleRemaining: 5_000_000,
+  resaleYears: 4,
+  resaleFrequency: "yearly",
+};
+/** Savings large enough to carry the resale example: 10M to the seller, 9M of it borrowed. */
+const RESALE_DEAL = withInputs({
+  startingCapital: 20_000_000,
+  purchase: RESALE,
+  loan: LOAN,
+  maintenance: { share: 0, year: 1 },
+});
+
+describe("simulate — the reference survives the generalisation", () => {
+  it("still solves to 8,860,000 and ends at 500,991 with no purchase and no loan given", () => {
+    const { maxPrice, simulation } = maxFeasiblePrice(REFERENCE);
+    expect(maxPrice).toBe(8_860_000);
+    expect(Math.round(simulation!.finalBalance)).toBe(500_991);
+    expect(simulation!.loan).toBeNull();
+    expect(simulation!.upFront).toBe(simulation!.downPayment);
+    expect(simulation!.upFrontFromFund).toBe(simulation!.downPayment);
+  });
+});
+
+describe("simulate — with a loan against certificates", () => {
+  it("month 0: the fund pays its share of the up-front payment and locks the pledge", () => {
+    const r = simulate(RESALE_DEAL, 10_000_000);
+    expect(r.upFront).toBe(10_000_000);
+    expect(r.upFrontFromFund).toBeCloseTo(1_000_000, 6);
+    expect(r.monthly[0].held).toBe(9_000_000);
+    expect(r.monthly[0].balance).toBeCloseTo(20_000_000 - 1_000_000 - 9_000_000, 6);
+  });
+
+  it("pays rate/12 on the pledge every month and the bank installment for the loan's months", () => {
+    const r = simulate(RESALE_DEAL, 10_000_000);
+    expect(r.monthly[1].certificateInterest).toBeCloseTo(82_500, 6);
+    expect(r.monthly[1].bankInstallment).toBeCloseTo(240_000, 6);
+    expect(r.monthly[60].bankInstallment).toBeCloseTo(240_000, 6);
+    expect(r.loan!.totalInterest).toBeCloseTo(5_400_000, 6);
+    expect(r.loan!.certificateInterest).toBeCloseTo(82_500 * 60, 4);
+    expect(r.loan!.netCost).toBeCloseTo(5_400_000 - 4_950_000, 4);
+  });
+
+  it("at-end release: the whole pledge comes back on the last installment", () => {
+    const r = simulate(RESALE_DEAL, 10_000_000);
+    expect(r.monthly[59].held).toBe(9_000_000);
+    expect(r.monthly[60].released).toBe(9_000_000);
+    expect(r.monthly[60].held).toBe(0);
+  });
+
+  it("gradual release: the pledge follows the remaining principal down", () => {
+    const r = simulate(withInputs({ ...RESALE_DEAL, loan: { ...LOAN, release: "gradual" } }), 10_000_000);
+    expect(r.monthly[30].held).toBeCloseTo(4_500_000, 6);
+    expect(r.monthly[1].released).toBeCloseTo(150_000, 6);
+    expect(r.monthly[60].held).toBe(0);
+  });
+
+  it("runs to the longer of the developer stream and the loan", () => {
+    const r = simulate(RESALE_DEAL, 10_000_000);
+    expect(r.horizonYears).toBe(5);
+    expect(r.monthly).toHaveLength(61);
+    expect(r.monthly[60].installment).toBe(0); // the resale's 4 years are over
+    expect(r.monthly[48].installment).toBeCloseTo(1_250_000, 6);
+  });
+
+  it("checks the buffer against the spendable fund only", () => {
+    // 20M savings, 9M locked, 1M paid: 10M spendable at month 0. A 12M buffer
+    // is under spendable + held (19M) but over spendable alone.
+    const r = simulate(withInputs({ ...RESALE_DEAL, safetyBuffer: 12_000_000 }), 10_000_000);
+    expect(r.feasible).toBe(false);
+    expect(r.firstBreach!.month).toBe(0);
+  });
+
+  it("is infeasible at month 0 when the pledge plus the fund's share exceeds the savings", () => {
+    const r = simulate(
+      withInputs({ ...RESALE_DEAL, startingCapital: 8_000_000, safetyBuffer: 0, loan: { ...LOAN, share: 1, lendingRatio: 0.9 } }),
+      10_000_000,
+    );
+    expect(r.feasible).toBe(false);
+    expect(r.firstBreach!.month).toBe(0);
+  });
+
+  it("a free loan is a 0% installment plan: spendable + held follows the plan's balance", () => {
+    const rate = monthlyRate(0.12) * 12;
+    const base = withInputs({
+      startingCapital: 20_000_000,
+      maintenance: { share: 0, year: 1 },
+      income: { amount: 0, frequency: "yearly", annualIncrease: 0 },
+      safetyBuffer: 0,
+      schedule: { downPayment: 0, planYears: 5, mode: "equal", frequency: "monthly" },
+    });
+    const withLoan = simulate(
+      {
+        ...base,
+        purchase: { ...RESALE, kind: "developer-cash", cashDiscount: 0 },
+        loan: { ...LOAN, share: 1, flatRate: 0, certificateRate: rate },
+      },
+      10_000_000,
+    );
+    const plan = simulate(base, 10_000_000);
+    for (let m = 0; m <= 60; m++) {
+      const p = withLoan.monthly[m];
+      expect(p.balance + p.held).toBeCloseTo(plan.monthly[m].balance, 2);
+    }
+  });
+
+  it("reconciles every year row with a loan on", () => {
+    for (const release of ["at-end", "gradual"] as const) {
+      const r = simulate(withInputs({ ...RESALE_DEAL, loan: { ...LOAN, release } }), 10_000_000);
+      for (const y of r.years) {
+        expect(y.closing).toBeCloseTo(
+          y.opening + y.returns + y.certificateInterest + y.income + y.released
+            - y.downPayment - y.pledged - y.installments - y.bankInstallments - y.extraCosts,
+          4,
+        );
+      }
+      expect(r.years[0].pledged).toBe(9_000_000);
+      expect(r.years[1].pledged).toBe(0);
+    }
+  });
+
+  it("puts extra costs on the cash price for a developer cash purchase, and on cash + remaining for a resale", () => {
+    const cash = simulate(
+      withInputs({
+        startingCapital: 20_000_000,
+        purchase: { ...RESALE, kind: "developer-cash", cashDiscount: 0.3 },
+        maintenance: { share: 0.1, year: 1 },
+      }),
+      10_000_000,
+    );
+    expect(cash.monthly[12].extraCost).toBeCloseTo(700_000, 6);
+    const resale = simulate(withInputs({ ...RESALE_DEAL, maintenance: { share: 0.1, year: 1 } }), 10_000_000);
+    expect(resale.monthly[12].extraCost).toBeCloseTo(1_500_000, 6);
+  });
+});
+
+describe("inputProblems — purchase and loan", () => {
+  it("passes a sound resale with a loan", () => {
+    expect(inputProblems(RESALE_DEAL)).toEqual([]);
+  });
+  it("ignores the hidden developer plan for a resale", () => {
+    const fields = inputProblems(
+      withInputs({ ...RESALE_DEAL, schedule: { downPayment: 0.1, planYears: 99, mode: "equal", frequency: "yearly" } }),
+    ).map((p) => p.field);
+    expect(fields).toEqual([]);
+  });
+  it("allows an extra cost in any year up to the horizon", () => {
+    const inputs = withInputs({ loan: { ...LOAN, years: 10 }, maintenance: { share: 0.08, year: 10 } });
+    expect(inputProblems(inputs)).toEqual([]);
+    const late = withInputs({ loan: { ...LOAN, years: 10 }, maintenance: { share: 0.08, year: 11 } });
+    expect(inputProblems(late).map((p) => p.field)).toEqual(["maintenance.year"]);
+  });
+  it("reports loan and purchase problems with their fields", () => {
+    const fields = inputProblems(
+      withInputs({ ...RESALE_DEAL, purchase: { ...RESALE, resaleYears: 0 }, loan: { ...LOAN, lendingRatio: 0 } }),
+    ).map((p) => p.field);
+    expect(fields).toContain("purchase.resaleYears");
+    expect(fields).toContain("loan.lendingRatio");
   });
 });

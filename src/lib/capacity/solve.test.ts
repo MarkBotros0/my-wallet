@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { REFERENCE } from "./fixtures";
 import { simulate, validateInputs } from "./simulate";
 import { maxFeasiblePrice, sensitivity } from "./solve";
-import type { CalculatorInputs } from "./types";
+import type { CalculatorInputs, LoanInput, PurchaseInput } from "./types";
 
 const withInputs = (over: Partial<CalculatorInputs>): CalculatorInputs => ({ ...REFERENCE, ...over });
 
@@ -143,4 +143,33 @@ describe("end-of-plan keep target", () => {
     expect(validateInputs(withInputs({ minKeptShare: 1.2 })).length).toBeGreaterThan(0);
     expect(validateInputs(withInputs({ minKeptShare: -0.1 })).length).toBeGreaterThan(0);
   });
+});
+
+describe("maxFeasiblePrice — monotonic for every kind, loan on and off", () => {
+  const LOAN: LoanInput = {
+    enabled: true, share: 0.9, flatRate: 0.12, years: 5, lendingRatio: 1, certificateRate: 0.11, release: "gradual",
+  };
+  const purchases: PurchaseInput[] = [
+    { kind: "developer-plan", cashDiscount: 0, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+    { kind: "developer-cash", cashDiscount: 0.25, resaleRemaining: 0, resaleYears: 1, resaleFrequency: "yearly" },
+    { kind: "resale", cashDiscount: 0, resaleRemaining: 2_000_000, resaleYears: 4, resaleFrequency: "quarterly" },
+  ];
+  for (const purchase of purchases) {
+    for (const loan of [undefined, LOAN]) {
+      it(`${purchase.kind}, ${loan ? "with" : "without"} a loan`, () => {
+        const inputs = withInputs({
+          purchase,
+          loan,
+          income: { amount: 40_000, frequency: "monthly", annualIncrease: 0.05 },
+        });
+        const { maxPrice } = maxFeasiblePrice(inputs);
+        expect(maxPrice).not.toBeNull();
+        for (const k of [1, 10, 100, 1_000]) {
+          const below = maxPrice! - k * 1_000;
+          if (below >= 0) expect(simulate(inputs, below).feasible, `${below} feasible`).toBe(true);
+          expect(simulate(inputs, maxPrice! + k * 1_000).feasible, `${maxPrice! + k * 1_000} infeasible`).toBe(false);
+        }
+      });
+    }
+  }
 });

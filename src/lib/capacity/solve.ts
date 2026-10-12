@@ -1,3 +1,4 @@
+import { horizonYears } from "./purchase";
 import { isFeasible, simulate } from "./simulate";
 import type { CalculatorInputs, CapacityResult, SensitivityRow } from "./types";
 
@@ -16,10 +17,14 @@ export const DEFAULT_STEP = 1_000;
 /** Doubling past this many times means the inputs are pathological, not affordable. */
 const MAX_DOUBLINGS = 64;
 
-export function maxFeasiblePrice(inputs: CalculatorInputs, step = DEFAULT_STEP): CapacityResult {
+export function maxFeasiblePrice(
+  inputs: CalculatorInputs,
+  step = DEFAULT_STEP,
+  horizon = horizonYears(inputs),
+): CapacityResult {
   // If not even a free property keeps the balance above the buffer, or one
   // step of price already breaks it, nothing on the grid is affordable.
-  if (!isFeasible(inputs, 0) || !isFeasible(inputs, step)) {
+  if (!isFeasible(inputs, 0, horizon) || !isFeasible(inputs, step, horizon)) {
     return { maxPrice: null, simulation: null };
   }
 
@@ -28,7 +33,7 @@ export function maxFeasiblePrice(inputs: CalculatorInputs, step = DEFAULT_STEP):
   let lo = 1; // in steps, known feasible
   let hi = Math.max(2, Math.ceil(inputs.startingCapital / step)); // in steps
   let doublings = 0;
-  while (isFeasible(inputs, hi * step)) {
+  while (isFeasible(inputs, hi * step, horizon)) {
     lo = hi;
     hi *= 2;
     if (++doublings > MAX_DOUBLINGS) break;
@@ -37,12 +42,12 @@ export function maxFeasiblePrice(inputs: CalculatorInputs, step = DEFAULT_STEP):
   // Bisect on the step grid: lo feasible, hi infeasible.
   while (hi - lo > 1) {
     const mid = Math.floor((lo + hi) / 2);
-    if (isFeasible(inputs, mid * step)) lo = mid;
+    if (isFeasible(inputs, mid * step, horizon)) lo = mid;
     else hi = mid;
   }
 
   const maxPrice = lo * step;
-  return { maxPrice, simulation: simulate(inputs, maxPrice) };
+  return { maxPrice, simulation: simulate(inputs, maxPrice, horizon) };
 }
 
 export const DEFAULT_SENSITIVITY_DELTAS = [-0.06, -0.03, 0, 0.03] as const;
