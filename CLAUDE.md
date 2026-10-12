@@ -534,7 +534,14 @@ solver finds it.
   banks quote it. The loan card says "The rates below are examples — enter
   your bank's offer." while `loanRatesEdited` is false.
 - **One horizon across plans.** A plan's horizon = `max(developer/resale
-  years, loan years)`; `solvePlans` simulates every plan over
+  years, loan years, maintenance year if its share > 0, finishing year if
+  its share > 0)` (`horizonYears`; cost years clamp to whole numbers >= 1 and
+  bad values are `inputProblems`' to report) — so an all-now plan can carry a
+  deposit due in year 4. An extra cost's year may be anything from 1 to
+  `MAX_PLAN_YEARS` (15), no longer capped by the plan's own length. A migrated
+  v1 developer-cash plan therefore no longer runs over its hidden plan length:
+  with a keep target set its answer can differ from the old screen.
+   `solvePlans` simulates every plan over
   `commonHorizon` (the longest), so final balances are on the same date and
   the keep target bites at the same moment. Only plans that parse (and, in
   top-up mode, carry a price) are compared. `bestPlan` = highest maximum /
@@ -602,9 +609,14 @@ sensitivity as max price or top-up, `LoanComparison` when the plan has a
 loan, and in max mode "Check a price"). Plans are named automatically
 (`planName`: "10% now · 8 yrs", "All now · 25% off", "Resale · 5M over 4
 yrs", "+ loan") until the user types one. **Every "go to field" goes
-through `reveal(field)`** in `CapacityCalculator` — the error summary, the
-strip's Fix, the ranking's fix — which sets the step (and opens the plan
-editor, or the What if tab for the test price) before `focusField`. New
+through `reveal(field)`** in `CapacityCalculator` — the strip's Fix and the
+ranking's "Fix this plan" — which sets the step before `focusField`: a plan
+field opens that plan's editor on step 2, the test price goes to step 3 with
+the What if tab open for that plan (the tab state lives in
+`CapacityCalculator` and is passed to `CompareStep`). Picking a plan from the
+step-3 ranking closes the step-2 editor. There is no error summary: errors
+show as field messages, a red dot on the step bar, and the strip's count of
+inputs with its Fix; the plan card only says "Fix this plan". New
 content goes into a step or a tab, never another full-width card.
 
 **The first load shows two example plans** ("10% now · 8 years" and "All
@@ -613,7 +625,7 @@ now · 25% off") labelled as examples until `examplesEdited`.
 
 ### The maths is pure and lives in `src/lib/capacity`
 
-No React, no Next, no DB — so it is unit-tested directly (`npm test`, 140
+No React, no Next, no DB — so it is unit-tested directly (`npm test`, 143
 tests in `src/lib/capacity`) and could run on the server unchanged. Two conventions, stated in
 `types.ts`, that every function follows:
 
@@ -654,7 +666,7 @@ so the monthly engine agrees with yearly steps to the pound (final balance
 and `parseForm` converts once, so "1." or "" can sit in a field without a
 fight. `CapacityForm = { version: 2, mode, step, money, plans[],
 selectedPlanId, examplesEdited }`. `parseForm` returns `moneyErrors`, per
-plan `{ inputs | null, price, errors, byField }`, the flat `errors`
+plan `{ id, inputs | null, errors, price, testPrice }`, the flat `errors`
 (blocking: money first, then plans in list order, each in PAGE order) and
 `byField` (first message per field, including the ones that never block: the
 currency code and the test price). **Hidden fields never block** — a
@@ -674,7 +686,7 @@ edits never undo each other: `updateMoney(patch)`, `updatePlan(id, patch)`
 delete; keeps the selection on a plan that exists). `normalizeForm` pads and
 clamps (0 plans -> the defaults, > 6 -> the first 6), validates a v2 copy
 field by field, and **migrates a v1 form** (no `version`): its money plus
-ONE plan "Plan 1" — `resale` stays resale, `developer-cash` becomes a
+ONE plan with a BLANK name (it is named after its terms, like any plan) — `resale` stays resale, `developer-cash` becomes a
 developer plan with 100% now and the cash discount, a nominal rate becomes
 its effective equivalent (`effectiveFromNominal`), a v1 loan comes across on
 the plan. Anything else is the defaults.
@@ -710,9 +722,9 @@ length of `planYears`.
   `aria-invalid` / `aria-describedby` through a context — a call site passes
   `error` to the Field and nothing to the input. Two narrow fields in a row
   share ONE error line beneath the pair via `errorId`.
-- **A plan that cannot be solved shows no stale number:** its card and the
-  strip say "N inputs need fixing" (or ask for a price); the Fix tap runs
-  `reveal` on the first blocking field.
+- **A plan that cannot be solved shows no stale number:** its card says "Fix
+  this plan" (or asks for a price); only the strip counts inputs ("N inputs
+  need fixing"), and its Fix tap runs `reveal` on the first blocking field.
 - Money inputs use `NumberInput group`: on blur a parsed value is rewritten
   with thousands separators; `parseNumber` strips them again.
 
