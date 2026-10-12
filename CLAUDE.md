@@ -52,6 +52,8 @@ src/
     rates.ts               #   effective <-> nominal, monthly/daily rates
     schedule.ts            #   down payment + yearly shares -> fraction due per month
     simulate.ts            #   the month-by-month engine, validateInputs
+    purchase.ts            #   the three ways of buying -> up-front + developer stream; horizon
+    loan.ts                #   flat-rate loan terms, pledge held/released, declining equivalent
     solve.ts               #   maxFeasiblePrice (binary search), sensitivity
     fixtures.ts            #   the spec's reference scenario (8,860,000)
   server/                  # server-only — never import from a client component
@@ -85,6 +87,8 @@ src/
     lib/today.ts           # useToday — the phone's date, null on the server
     lib/capacityForm.ts    # the calculator's form (strings, %) -> CalculatorInputs; tested
     lib/capacityFormStore.ts # remembers the form per device (same pattern as authStore)
+    lib/dealText.ts        # describeDeal / loanVerdict — the deal in sentences; tested
+    lib/capacitySections.ts # the five input sections: summaries + field -> section; tested
     lib/format.ts          # formatMoney (whole units) / formatAmount (keeps piastres) / compact / pct / share
     lib/initials.ts        # initials — a name's monogram ("Acme Corp" → "AC"); tested
     lib/numbers.ts         # parseNumber — "5,000,000" → 5000000
@@ -96,7 +100,8 @@ src/
     components/clients/    # ClientsPage (hero + roster), YearSplitBar, ClientPage, ClientForm
     components/godsShare/  # GodsSharePage
     components/home/       # HomePage + ClientBars (by client), MonthlyChart (over the year)
-    components/capacity/   # CapacityCalculator + RateInput, ScheduleEditor, BalanceChart,
+    components/capacity/   # CapacityCalculator + PurchasePicker, LoanCard, Explain, DealSummary,
+                           #   LoanComparison, Section, ResultTabs, RateInput, ScheduleEditor, BalanceChart,
                            #   YearTable, SensitivityTable, formErrors (per-field errors),
                            #   LiveResult (the phone's sticky answer strip + the desktop's
                            #   condensed bar, DesktopResultBar)
@@ -457,15 +462,77 @@ given, not money lost, so Home no longer has a number that can go negative
 
 ## Real Estate — buying capacity
 
-The one feature so far. Spec: the user's savings sit in a fund; they buy an
+The one feature so far. It weighs three ways of buying (developer
+installments, developer cash, resale) and, for any of them, a bank loan against
+pledged certificates. Spec: the user's savings sit in a fund; they buy an
 off-plan property on installments, keep the unpaid balance invested, and pay
 from the fund plus extra income. The calculator finds the MAXIMUM price whose
 plan never drops the fund below a safety buffer (and, optionally, ends with a
 chosen share of the starting capital still in the fund).
 
+### Buying three ways, and the bank loan (2026-10-12)
+
+Spec: `docs/superpowers/specs/2026-10-12-bank-loan-and-resale-design.md`
+(the record; the code is the truth). One generalised engine — every case is
+an up-front payment at month 0, an optional developer stream after it, and an
+optional loan funding part of the up-front payment. No second engine.
+
+`price` means something different per `PurchaseKind`, and the solver still
+binary-searches it:
+
+| kind | up-front at month 0 | developer payments after | extra costs × |
+|---|---|---|---|
+| developer-plan | `downPayment × price` | `buildInstallmentShares(schedule) × price` | price |
+| developer-cash | `price × (1 − cashDiscount)` | none (`schedule` is only the no-loan alternative) | cash price |
+| resale | `price` (cash to the seller) | `resaleRemaining` (fixed, not scaled) over `resaleYears` at `resaleFrequency`, equal split | price + resaleRemaining |
+
+Developer-cash `price` is the INSTALLMENT price, so its maximum compares
+directly with the plan's.
+
+- **The loan** is the Egyptian loan secured by a deposit. `loan = share ×
+  upFront` (a % of the up-front payment, so the solver scales it with the
+  price); `pledge = loan ÷ lendingRatio` moves from spendable to HELD at
+  month 0. Held money is locked and earns `held × certificateRate / 12` a
+  month, NET (no `returnFee`), into spendable. Release: `at-end` returns it
+  all at month `n`; `gradual` holds `remaining principal ÷ lendingRatio`.
+- **The buffer reads SPENDABLE only** — pledged money cannot cover an
+  emergency. Feasible = fund payment + pledge fit the capital AND spendable ≥
+  buffer every month AND final spendable ≥ keep target. A test pins that a
+  deal feasible on spendable + held but not spendable alone is infeasible.
+- **Flat-rate maths:** interest = principal × flatRate × years, equal monthly
+  installments, principal repaid `loan/n` a month. The declining-balance
+  equivalent (bisection on an annuity) is NOMINAL annual (monthly rate × 12),
+  how banks quote it, so offers compare like for like.
+- **Horizon** = `max(developer years, loan years if on)` (`purchase.ts`).
+  Past a stream the months carry only growth and income. `compare(inputs,
+  price?)` simulates BOTH sides over the DEAL's horizon so the two final
+  balances are on the same date; `withoutLoan` turns the loan off and
+  developer-cash into the developer plan.
+- **Backwards compatible:** inputs without `purchase`/`loan` are the original
+  calculator, so `REFERENCE` (8,860,000) is untouched. `normalizeForm`
+  defaults a saved form to developer installments, loan off.
+- **Words, not just numbers:** `app/lib/dealText.ts::describeDeal` and
+  `loanVerdict` are pure and tested; the "Your deal" card and the verdict
+  line render them. Rate fields prefilled as examples are labelled "Example —
+  enter your bank's offer" until edited, so a default is never read as a quote.
+
+### The page's shape — sections and tabs (2026-10-12)
+
+Mark asked for the calculator not to be one long page. **Inputs are five
+folding sections, one open at a time** (How you buy · Your money · Payments ·
+Bank loan · Income & costs; `Section.tsx`), each closed row showing a
+one-line summary and a red dot when a field inside is bad — summaries and the
+field -> section map are pure in `capacitySections.ts`. **Results are four
+tabs** (`ResultTabs`, an ARIA tablist): Answer · Over time · Year by year ·
+What if; only the active panel renders. **Every "go to field" goes through
+`reveal(field)`** — the error summary, the phone strip's Fix and the desktop
+bar's Fix — which opens the field's section (or the What if tab for the test
+price) before focusing it. New content goes into a section or a tab, never
+another full-width card down the page.
+
 ### The maths is pure and lives in `src/lib/capacity`
 
-No React, no Next, no DB — so it is unit-tested directly (`npm test`, 65
+No React, no Next, no DB — so it is unit-tested directly (`npm test`, 113
 tests in `src/lib/capacity`) and could run on the server unchanged. Two conventions, stated in
 `types.ts`, that every function follows:
 
@@ -659,7 +726,8 @@ several `gh` accounts and the wrong one gets a 403 on `MarkBotros0/my-wallet`.
 - Categories and per-entry notes — **removed 2026-09-21**, not merely
   missing: every income is salary, so they carried nothing. Do not bring
   them back for one use case; a client is the "who", the kind is the "what".
-- The calculator models no borrowing, no property appreciation, no rent, and
-  a constant return rate; the page says so. A price target with a direction
+- The calculator models a bank loan against certificates only (flat rate, no
+  fees, no early repayment, no fixed approved cap); no property appreciation,
+  no rent, constant rates; the page says so. A price target with a direction
   attached is the thing EGX deliberately refuses to show, and this app should
   keep the same discipline if it ever grows a "projection".

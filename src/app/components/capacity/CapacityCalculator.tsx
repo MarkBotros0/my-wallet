@@ -435,7 +435,8 @@ export default function CapacityCalculator() {
                 <p className="text-sm text-white/50">Fix the inputs to see this.</p>
               )}
               <p className="px-1 text-xs text-white/40">
-                Estimates assume a constant return rate. Fund returns vary and are not guaranteed.
+                Estimates assume constant rates. Fund and certificate returns vary and are not guaranteed; bank fees,
+                early repayment and tax on certificate interest are not modelled.
               </p>
             </div>
           </div>
