@@ -337,7 +337,7 @@ export interface TopUpResult {
 }
 
 export interface PlanResult {
-  /** max mode: the maximum price; topUp mode: the price asked about. null = nothing affordable (max mode). */
+  /** max mode: the maximum price; topUp mode: the price asked about. null = nothing affordable (max mode), or no price given (top-up mode). */
   price: number | null;
   /** topUp mode only; null in max mode or when a blocker stops it. */
   topUp: number | null;

@@ -99,6 +99,7 @@ export function minTopUp(
   const at = (topUp: number) => simulate({ ...inputs, topUp }, price, horizon);
   const base = at(0);
   if (base.feasible) return { topUp: 0, simulation: base, blocker: null };
+  // 1e12 stands for "unlimited": prices needing more than that a year are outside the app's range.
   if (!at(1e12).feasible) {
     return { topUp: null, simulation: base, blocker: base.firstBreach?.month === 0 ? "day-one" : "too-early" };
   }
@@ -126,7 +127,8 @@ export function commonHorizon(plans: CalculatorInputs[]): number {
 /**
  * Solve every plan over ONE horizon. "max" finds each plan's maximum list
  * price; "topUp" finds the least yearly top-up for the price asked about
- * (`prices[i]` for plan i, falling back to the first price).
+ * (`prices[i]` for plan i). A plan with no (or a non-finite) price is not
+ * solved: it returns all nulls.
  */
 export function solvePlans(plans: CalculatorInputs[], ask: Ask, step = DEFAULT_STEP): PlanResult[] {
   const horizon = commonHorizon(plans);
@@ -135,8 +137,8 @@ export function solvePlans(plans: CalculatorInputs[], ask: Ask, step = DEFAULT_S
       const { maxPrice, simulation } = maxFeasiblePrice(plan, step, horizon);
       return { price: maxPrice, topUp: null, blocker: null, simulation };
     }
-    const price = ask.prices[i] ?? ask.prices[0];
-    if (price === undefined) return { price: null, topUp: null, blocker: null, simulation: null };
+    const price = ask.prices[i];
+    if (price === undefined || !Number.isFinite(price)) return { price: null, topUp: null, blocker: null, simulation: null };
     const r = minTopUp(plan, price, step, horizon);
     return { price, topUp: r.topUp, blocker: r.blocker, simulation: r.simulation };
   });

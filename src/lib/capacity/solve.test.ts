@@ -259,6 +259,7 @@ describe("minTopUp", () => {
   it("is monotonic in price", () => {
     const inputs = withInputs({ income: { amount: 0, frequency: "yearly", annualIncrease: 0 } });
     const tops = [8_000_000, 8_500_000, 9_000_000, 9_500_000, 10_000_000].map((p) => minTopUp(inputs, p).topUp);
+    expect(tops.every((t) => t !== null)).toBe(true);
     for (let i = 1; i < tops.length; i++) expect(tops[i - 1]!).toBeLessThanOrEqual(tops[i]!);
   });
 });
@@ -288,6 +289,12 @@ describe("solvePlans / bestPlan", () => {
       expect(rs[i].simulation!.horizonYears).toBe(8);
     });
   });
+  it("a plan without a price is not solved", () => {
+    const rs = solvePlans([REFERENCE, cash], { mode: "topUp", prices: [9_000_000] });
+    expect(rs[1].price).toBeNull();
+    expect(rs[1].simulation).toBeNull();
+    expect(rs[1].topUp).toBeNull();
+  });
   it("bestPlan: highest price or lowest top-up, first on a tie, nulls never", () => {
     const r = (price: number | null, topUp: number | null = null): PlanResult => ({
       price, topUp, blocker: null, simulation: null,
@@ -305,6 +312,7 @@ describe("topUpSensitivity / compareTopUp / horizon params", () => {
   it("reports a top-up per rate, falling as the rate rises", () => {
     const rows = topUpSensitivity(poor, 8_860_000);
     expect(rows.map((r) => r.delta)).toEqual([-0.06, -0.03, 0, 0.03]);
+    expect(rows.every((r) => r.topUp !== null)).toBe(true);
     const tops = rows.map((r) => r.topUp!);
     for (let i = 1; i < tops.length; i++) expect(tops[i]).toBeLessThanOrEqual(tops[i - 1]);
   });
