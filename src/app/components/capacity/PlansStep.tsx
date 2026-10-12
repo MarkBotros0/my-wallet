@@ -4,6 +4,7 @@ import type { PlanResult } from "@/lib/capacity";
 import { MAX_PLANS, newPlan, planId, planName, planTerms, type CapacityForm, type ParsedForm } from "@/app/lib/capacityForm";
 import { setPlans, updatePlan } from "@/app/lib/capacityFormStore";
 import { planAnswer } from "@/app/lib/planAnswer";
+import { useFormErrors } from "./formErrors";
 import PlanCard from "./PlanCard";
 import PlanEditor from "./PlanEditor";
 
@@ -34,6 +35,7 @@ export default function PlansStep({
 }) {
   const { plans, mode } = form;
   const moneyBroken = parsed.moneyErrors.length > 0;
+  const { forget } = useFormErrors();
 
   const open = (id: string) => {
     onOpenPlan(id);
@@ -60,6 +62,8 @@ export default function PlansStep({
     const rest = plans.filter((p) => p.id !== id);
     setPlans(rest, form.selectedPlanId === id ? rest[0].id : undefined);
     if (openPlan === id) onOpenPlan(null);
+    // planId can hand this id out again; its fields must not come back "touched".
+    forget(`plan.${id}.`);
   };
 
   return (
@@ -76,6 +80,7 @@ export default function PlansStep({
         return (
           <PlanCard
             key={plan.id}
+            id={plan.id}
             name={planName(plan)}
             terms={planTerms(plan)}
             answer={planAnswer({

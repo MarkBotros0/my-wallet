@@ -45,7 +45,16 @@ export function useVisibleErrors(byField: Partial<Record<FormField, string>>) {
     setActive(null);
   }, []);
 
-  return { errorFor, bind, reset };
+  /** Forget every touched field under a prefix (a deleted plan's `plan.<id>.`), so a later plan with that id starts clean. */
+  const forget = useCallback((prefix: string) => {
+    setTouched((prev) => {
+      if (![...prev].some((f) => f.startsWith(prefix))) return prev;
+      return new Set([...prev].filter((f) => !f.startsWith(prefix)));
+    });
+    setActive((a) => (a?.startsWith(prefix) ? null : a));
+  }, []);
+
+  return { errorFor, bind, reset, forget };
 }
 
 type FormErrors = ReturnType<typeof useVisibleErrors>;

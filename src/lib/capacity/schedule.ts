@@ -52,7 +52,7 @@ export function scheduleProblems(schedule: ScheduleInput): InputProblem[] {
     });
   }
   if (!Number.isFinite(downPayment) || downPayment < 0 || downPayment > 1) {
-    problems.push({ field: "schedule.downPayment", message: "Down payment must be between 0% and 100%." });
+    problems.push({ field: "schedule.downPayment", message: "The share paid now must be between 0% and 100%." });
   }
 
   if (schedule.mode === "custom") {

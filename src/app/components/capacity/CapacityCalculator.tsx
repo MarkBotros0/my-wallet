@@ -201,6 +201,7 @@ export default function CapacityCalculator() {
                 return (
                   <PlanCard
                     key={plan.id}
+                    id={plan.id}
                     name={planName(plan)}
                     terms={planTerms(plan)}
                     answer={planAnswer({

@@ -218,8 +218,9 @@ function ExtraCosts({ plan, onChange }: { plan: PlanForm; onChange: (patch: Part
     <section className="border-t border-white/10 pt-5">
       <button
         type="button"
-        onClick={() => setOpen(!shown)}
+        onClick={() => !forced && setOpen(!shown)}
         aria-expanded={shown}
+        aria-disabled={forced || undefined}
         aria-controls={`extras-${plan.id}`}
         className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 text-left"
       >
@@ -227,7 +228,8 @@ function ExtraCosts({ plan, onChange }: { plan: PlanForm; onChange: (patch: Part
           <span className="block text-sm font-semibold text-white">Extra costs</span>
           <span className="block truncate text-xs text-white/50">{summary}</span>
         </span>
-        <span className="shrink-0 text-xs font-medium text-accent">{shown ? "Hide" : "Change"}</span>
+        {/* While a field inside has a problem it cannot close, so it offers no toggle. */}
+        {!forced && <span className="shrink-0 text-xs font-medium text-accent">{shown ? "Hide" : "Change"}</span>}
       </button>
       {shown && (
         <div id={`extras-${plan.id}`} className="mt-3 space-y-4">
