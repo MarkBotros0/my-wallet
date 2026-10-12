@@ -1,5 +1,7 @@
 # Cash-discount tiers — buying capacity
 
+> **Superseded 2026-10-13** by `2026-10-13-calculator-redesign-design.md` — a cash tier is now just a plan. Never built.
+
 _Approved in chat 2026-10-12. Extends `2026-10-12-bank-loan-and-resale-design.md`.
 This file is the record; the implementation is the truth._
 
