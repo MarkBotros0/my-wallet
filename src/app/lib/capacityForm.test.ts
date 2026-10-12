@@ -121,6 +121,13 @@ describe("parseForm — money", () => {
 });
 
 describe("parseForm — plans", () => {
+  it("lets the all-now plan carry a maintenance deposit due after the (one-year) plan", () => {
+    const allNow = DEFAULT_FORM.plans.find((p) => p.nowPct === "100")!;
+    const parsed = parseForm(withPlan(allNow.id, { maintenancePct: "8", maintenanceYear: "4" }));
+    expect(parsed.plans.find((p) => p.id === allNow.id)!.inputs).not.toBeNull();
+    expect(parsed.plans.find((p) => p.id === allNow.id)!.errors).toEqual([]);
+  });
+
   it("carries a plan error on plan.<id>.<key>", () => {
     const parsed = parseForm(withPlan("p2", { nowPct: "150" }));
     expect(parsed.plans[0].inputs).not.toBeNull();
@@ -400,6 +407,11 @@ describe("normalizeForm — v1 migration", () => {
   it("turns developer cash into 100% now with the discount", () => {
     const f = normalizeForm({ ...v1, purchaseKind: "developer-cash", cashDiscountPct: "15" });
     expect(f.plans[0]).toMatchObject({ kind: "developer", nowPct: "100", discountPct: "15" });
+  });
+
+  it("migrates developer cash with a maintenance year past its hidden plan into a plan that parses", () => {
+    const f = normalizeForm({ ...v1, purchaseKind: "developer-cash", cashDiscountPct: "15", planYears: "2", maintenanceYear: "4" });
+    expect(parseForm(f).plans[0].inputs).not.toBeNull();
   });
 
   it("converts a nominal rate to its effective equivalent", () => {

@@ -41,6 +41,14 @@ describe("horizonYears", () => {
     expect(horizonYears(withInputs({ loan: { ...LOAN, years: 10 } }))).toBe(10);
     expect(horizonYears(withInputs({ loan: { ...LOAN, years: 3 } }))).toBe(8);
   });
+  it("stretches to a later extra cost, and ignores a disabled or invalid one", () => {
+    const allNow = withInputs({ schedule: { downPayment: 1, planYears: 1, mode: "equal", frequency: "yearly" } });
+    expect(horizonYears(allNow)).toBe(4);
+    expect(horizonYears({ ...allNow, finishing: { share: 0.05, year: 6 } })).toBe(6);
+    expect(horizonYears({ ...allNow, maintenance: { share: 0, year: 9 } })).toBe(1);
+    expect(horizonYears({ ...allNow, maintenance: { share: 0.08, year: Number.NaN } })).toBe(1);
+    expect(horizonYears({ ...allNow, maintenance: { share: 0.08, year: 0 } })).toBe(1);
+  });
   it("uses the resale's remaining years for a resale", () => {
     expect(horizonYears(withInputs({ purchase: RESALE }))).toBe(4);
     expect(horizonYears(withInputs({ purchase: RESALE, loan: LOAN }))).toBe(5);

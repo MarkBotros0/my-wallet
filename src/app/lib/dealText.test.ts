@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REFERENCE } from "@/lib/capacity/fixtures";
-import { simulate, type CalculatorInputs, type Comparison, type SimulationResult, type TopUpResult } from "@/lib/capacity";
+import { DEFAULT_STEP, simulate, type CalculatorInputs, type Comparison, type SimulationResult, type TopUpResult } from "@/lib/capacity";
 import { describeDeal, loanVerdict, loanVerdictTopUp, topUpSentence, type DealSentence } from "./dealText";
 
 const RESALE_DEAL: CalculatorInputs = {
@@ -139,7 +139,7 @@ describe("topUpSentence", () => {
     const sim = { ...base, firstBreach: { month: 0, shortfall: 750_000 } };
     const s = topUpSentence(r(null, "day-one", sim), "yearly");
     expect(text(s)).toBe("No top-up can fix this: on day one you need # more savings than you have.");
-    expect(amounts(s)).toEqual([{ amount: 750_000, tone: "out" }]);
+    expect(amounts(s)).toEqual([{ amount: 750_000, tone: "neutral" }]);
   });
   it("explains a too-early blocker with the month", () => {
     const sim = { ...base, firstBreach: { month: 6, shortfall: 1 } };
@@ -167,6 +167,10 @@ describe("loanVerdictTopUp", () => {
     expect(x.kind).toBe("no-loan-better");
     expect(text(x.headline)).toBe("Without the loan you'd add # a year less.");
     expect(amounts(x.headline)).toEqual([{ amount: 300_000, tone: "neutral" }]);
+  });
+  it("calls top-ups within one solver step the same, and further apart different", () => {
+    expect(v(100_000, 100_000 - DEFAULT_STEP).kind).toBe("same");
+    expect(v(100_000, 100_000 - DEFAULT_STEP - 1).kind).not.toBe("same");
   });
   it("calls equal top-ups the same", () => {
     expect(v(100_000, 100_000).kind).toBe("same");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { purchaseOf, type CalculatorInputs, type PlanResult, type SimulationResult } from "@/lib/capacity";
 import { planName, planTerms, type CapacityForm, type FormField, type Mode, type ParsedForm, type PlanForm } from "@/app/lib/capacityForm";
 import { formatMoney } from "@/app/lib/format";
@@ -38,6 +38,8 @@ export default function CompareStep({
   best,
   horizon,
   currency,
+  tab,
+  onTab: setTab,
   onSelect,
   onReveal,
 }: {
@@ -47,11 +49,13 @@ export default function CompareStep({
   best: string | null;
   horizon: number | null;
   currency: string;
+  /** The detail's open tab — held by the calculator so a field reveal can open What if. */
+  tab: ResultTab;
+  onTab: (tab: ResultTab) => void;
   onSelect: (id: string) => void;
   /** Go to the step holding a field, open its plan, focus it. */
   onReveal: (field: FormField) => void;
 }) {
-  const [tab, setTab] = useState<ResultTab>("answer");
   const { mode, plans } = form;
   const moneyBroken = parsed.moneyErrors.length > 0;
 

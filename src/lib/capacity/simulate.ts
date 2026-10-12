@@ -1,7 +1,7 @@
 import { loanProblems, loanTerms, pledgeHeld } from "./loan";
 import { activeLoan, buildDeal, horizonYears, purchaseOf, purchaseProblems } from "./purchase";
 import { monthlyRate } from "./rates";
-import { scheduleProblems } from "./schedule";
+import { MAX_PLAN_YEARS, scheduleProblems } from "./schedule";
 import type { CalculatorInputs, FlowTotals, InputProblem, MonthPoint, SimulationResult, YearSummary } from "./types";
 
 /**
@@ -83,7 +83,6 @@ export function inputProblems(inputs: CalculatorInputs): InputProblem[] {
   if (purchaseOf(inputs).kind !== "resale") problems.push(...scheduleProblems(schedule));
   problems.push(...purchaseProblems(inputs));
   problems.push(...loanProblems(inputs.loan));
-  const horizon = horizonYears(inputs);
 
   for (const [key, label, cost] of [
     ["maintenance", "Maintenance deposit", inputs.maintenance],
@@ -92,10 +91,10 @@ export function inputProblems(inputs: CalculatorInputs): InputProblem[] {
     if (!Number.isFinite(cost.share) || cost.share < 0 || cost.share > 1) {
       problems.push({ field: `${key}.share`, message: `${label} must be between 0% and 100% of the price.` });
     } else if (cost.share > 0) {
-      if (!Number.isInteger(cost.year) || cost.year < 1 || cost.year > horizon) {
+      if (!Number.isInteger(cost.year) || cost.year < 1 || cost.year > MAX_PLAN_YEARS) {
         problems.push({
           field: `${key}.year`,
-          message: `${label} is due in year ${cost.year}; it must be a whole year from 1 to ${horizon}.`,
+          message: `${label} is due in year ${cost.year}; it must be a whole year from 1 to ${MAX_PLAN_YEARS}.`,
         });
       }
     }
@@ -296,7 +295,6 @@ export function simulate(inputs: CalculatorInputs, price: number, horizon = hori
     startingCapital,
     topUp: topUpYearly,
     totals,
-    downPayment: deal.upFront,
     upFront: deal.upFront,
     upFrontFromFund,
     totalInstallments,

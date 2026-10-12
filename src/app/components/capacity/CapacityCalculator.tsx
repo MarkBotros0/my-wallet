@@ -10,14 +10,16 @@ import LiveResult, { DesktopAnswer } from "./LiveResult";
 import MoneyStep from "./MoneyStep";
 import CompareStep from "./CompareStep";
 import PlansStep from "./PlansStep";
+import { type ResultTab } from "./ResultTabs";
 import StepBar from "./StepBar";
 import { Segmented } from "../ui";
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** Which step holds a field: the money block is step ①, every plan field step ②. */
+/** Which step holds a field: the money block is step ①, the test price (What if) step ③, every other plan field step ②. */
 function stepOf(field: FormField): Step {
-  return field.startsWith("money.") ? 1 : 2;
+  if (field.startsWith("money.")) return 1;
+  return field.endsWith(".testPrice") ? 3 : 2;
 }
 
 /** `plan.<id>.<key>` → `<id>`. */
@@ -45,6 +47,7 @@ export default function CapacityCalculator() {
   const [form, update, reset] = useCapacityForm();
   const { parsed, results, best, horizon } = usePlanResults(form);
   const [openPlan, setOpenPlan] = useState<string | null>(null);
+  const [compareTab, setCompareTab] = useState<ResultTab>("answer");
   const currency = form.money.currency.trim().toUpperCase() || "EGP";
 
   // A blank top-up price is a question not yet answered: never red, never counted.
@@ -86,7 +89,8 @@ export default function CapacityCalculator() {
   const reveal = (field: FormField) => {
     const plan = planOf(field);
     if (plan) {
-      setOpenPlan(plan);
+      if (field.endsWith(".testPrice")) setCompareTab("whatif");
+      else setOpenPlan(plan);
       update({ step: stepOf(field), selectedPlanId: plan });
     } else {
       update({ step: stepOf(field) });
@@ -204,7 +208,12 @@ export default function CapacityCalculator() {
                 best={best}
                 horizon={horizon}
                 currency={currency}
-                onSelect={(selectedPlanId) => update({ selectedPlanId })}
+                tab={compareTab}
+                onTab={setCompareTab}
+                onSelect={(selectedPlanId) => {
+                  setOpenPlan(null);
+                  update({ selectedPlanId });
+                }}
                 onReveal={reveal}
               />
               <StepNav back={{ label: "Back to plans", onClick: () => goTo(2) }} />

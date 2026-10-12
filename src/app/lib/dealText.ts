@@ -140,7 +140,7 @@ export function topUpSentence(
     if (blocker === "day-one") {
       return [
         "No top-up can fix this: on day one you need ",
-        { amount: simulation.firstBreach?.shortfall ?? 0, tone: "out" },
+        { amount: simulation.firstBreach?.shortfall ?? 0, tone: "neutral" },
         " more savings than you have.",
       ];
     }
@@ -184,7 +184,7 @@ export function loanVerdictTopUp(cmp: { withLoan: TopUpResult; withoutLoan: TopU
     return { kind: "no-loan-better", difference: 0, ...why, headline: ["With the loan no top-up can make this work."] };
   }
   const difference = b - a;
-  if (Math.abs(difference) <= 1) {
+  if (Math.abs(difference) <= DEFAULT_STEP) {
     return { kind: "same", difference, ...why, headline: ["The loan does not change the top-up you need."] };
   }
   return difference > 0

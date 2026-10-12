@@ -270,8 +270,6 @@ export interface SimulationResult {
   topUp: number;
   /** `startingCapital + Σin − Σout = finalBalance`, from these. */
   totals: FlowTotals;
-  /** Same as `upFront`; kept until the UI stops reading it. */
-  downPayment: number;
   upFront: number;
   /** The part of `upFront` paid from the fund — the rest is the loan. */
   upFrontFromFund: number;

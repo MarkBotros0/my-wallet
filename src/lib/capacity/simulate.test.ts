@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { monthlyRate } from "./rates";
 import { REFERENCE } from "./fixtures";
 import { inputProblems, simulate, validateInputs } from "./simulate";
+import { DEFAULT_PURCHASE, horizonYears } from "./purchase";
 import { maxFeasiblePrice } from "./solve";
 import type { CalculatorInputs, LoanInput, PurchaseInput } from "./types";
 
@@ -18,7 +19,7 @@ const NO_PAYMENTS: CalculatorInputs = withInputs({
 describe("simulate — month 0", () => {
   it("starts with capital minus the up-front payment; only the up-front flows are on the point", () => {
     const r = simulate(REFERENCE, 8_000_000);
-    expect(r.downPayment).toBe(800_000);
+    expect(r.upFront).toBe(800_000);
     expect(r.monthly[0]).toEqual({
       month: 0,
       balance: 4_200_000,
@@ -285,7 +286,7 @@ describe("validateInputs", () => {
   });
 
   it("rejects an extra cost due outside the plan", () => {
-    expect(validateInputs(withInputs({ maintenance: { share: 0.08, year: 9 } })).length).toBeGreaterThan(0);
+    expect(validateInputs(withInputs({ maintenance: { share: 0.08, year: 16 } })).length).toBeGreaterThan(0);
     // A disabled cost (share 0) does not care about its year.
     expect(validateInputs(withInputs({ finishing: { share: 0, year: 99 } }))).toEqual([]);
   });
@@ -319,7 +320,7 @@ describe("validateInputs", () => {
       "income.amount",
       "income.annualIncrease",
     ]);
-    expect(fieldsOf({ maintenance: { share: 0.08, year: 9 } })).toEqual(["maintenance.year"]);
+    expect(fieldsOf({ maintenance: { share: 0.08, year: 16 } })).toEqual(["maintenance.year"]);
     expect(fieldsOf({ finishing: { share: 1.5, year: 1 } })).toEqual(["finishing.share"]);
     const shares = [0.5, 0.5, 0, 0, 0, 0, 0, 0]; // 110% with the down payment
     expect(
@@ -363,8 +364,7 @@ describe("simulate — the reference survives the generalisation", () => {
     expect(maxPrice).toBe(8_860_000);
     expect(Math.round(simulation!.finalBalance)).toBe(500_991);
     expect(simulation!.loan).toBeNull();
-    expect(simulation!.upFront).toBe(simulation!.downPayment);
-    expect(simulation!.upFrontFromFund).toBe(simulation!.downPayment);
+    expect(simulation!.upFront).toBe(simulation!.upFrontFromFund);
   });
 });
 
@@ -492,10 +492,10 @@ describe("inputProblems — purchase and loan", () => {
     ).map((p) => p.field);
     expect(fields).toEqual([]);
   });
-  it("allows an extra cost in any year up to the horizon", () => {
+  it("allows an extra cost in any year up to the longest plan (15)", () => {
     const inputs = withInputs({ loan: { ...LOAN, years: 10 }, maintenance: { share: 0.08, year: 10 } });
     expect(inputProblems(inputs)).toEqual([]);
-    const late = withInputs({ loan: { ...LOAN, years: 10 }, maintenance: { share: 0.08, year: 11 } });
+    const late = withInputs({ loan: { ...LOAN, years: 10 }, maintenance: { share: 0.08, year: 16 } });
     expect(inputProblems(late).map((p) => p.field)).toEqual(["maintenance.year"]);
   });
   it("reports loan and purchase problems with their fields", () => {
@@ -644,5 +644,24 @@ describe("inputProblems — discount", () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("simulate — an all-now plan with a later extra cost", () => {
+  const ALL_NOW = withInputs({
+    schedule: { downPayment: 1, planYears: 1, mode: "equal", frequency: "yearly" },
+    purchase: { ...DEFAULT_PURCHASE, kind: "developer-plan", discount: 0.25 },
+    maintenance: { share: 0.08, year: 4 },
+  });
+  it("has no problems; the horizon stretches to the cost's year and the cost lands at month 48", () => {
+    expect(inputProblems(ALL_NOW)).toEqual([]);
+    expect(horizonYears(ALL_NOW)).toBe(4);
+    const r = simulate(ALL_NOW, 4_000_000);
+    expect(r.years[3].extraCosts).toBeGreaterThan(0);
+    expect(r.years[2].extraCosts).toBe(0);
+  });
+  it("still refuses a cost year beyond the longest plan allowed", () => {
+    const p = inputProblems({ ...ALL_NOW, maintenance: { share: 0.08, year: 16 } });
+    expect(p.map((x) => x.message)).toContain("Maintenance deposit is due in year 16; it must be a whole year from 1 to 15.");
   });
 });

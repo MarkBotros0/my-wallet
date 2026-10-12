@@ -46,7 +46,7 @@ export function groupTone(rows: FlowRow[]): FlowTone {
 
 export function flowGroups(
   flows: FlowTotals | YearSummary,
-  ctx: { vehicle: SavingsVehicle; kind: PurchaseKind; hasLoan: boolean; start?: number },
+  ctx: { vehicle: SavingsVehicle; kind: PurchaseKind; start?: number },
 ): FlowGroup[] {
   const resale = ctx.kind === "resale";
   const row = (key: string, label: string, amount: number, tone: FlowTone): FlowRow => ({ key, label, amount, tone });
@@ -99,7 +99,6 @@ export function dealBreakdown(
     groups: flowGroups(sim.totals, {
       vehicle: inputs.savingsVehicle ?? "fund",
       kind: purchaseOf(inputs).kind,
-      hasLoan: !!sim.loan && sim.loan.amount > 0,
       start,
     }),
     end: sim.finalBalance,

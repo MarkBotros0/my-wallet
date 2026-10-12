@@ -38,10 +38,23 @@ export function developerYears(inputs: CalculatorInputs): number {
   return p.kind === "resale" ? p.resaleYears : inputs.schedule.planYears;
 }
 
-/** How long to simulate: until both the developer and the bank are paid. */
+/** A year an extra cost falls due, as a horizon: whole and at least 1 (bad values are `inputProblems`' to report). */
+function costYear(cost: { share: number; year: number }): number {
+  return cost.share > 0 && Number.isFinite(cost.year) ? Math.max(1, Math.floor(cost.year)) : 0;
+}
+
+/**
+ * How long to simulate: until the developer, the bank and the last extra cost
+ * (maintenance, finishing) have all been paid.
+ */
 export function horizonYears(inputs: CalculatorInputs): number {
   const loan = activeLoan(inputs);
-  return Math.max(developerYears(inputs), loan ? loan.years : 0);
+  return Math.max(
+    developerYears(inputs),
+    loan ? loan.years : 0,
+    costYear(inputs.maintenance),
+    costYear(inputs.finishing),
+  );
 }
 
 export interface Deal {

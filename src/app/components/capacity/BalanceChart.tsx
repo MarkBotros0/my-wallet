@@ -567,7 +567,7 @@ export default function BalanceChart({
           left={x(hovered.month)}
           flip={x(hovered.month) > width * 0.65}
           point={hovered}
-          groups={monthGroups(hovered, inputs, sim)}
+          groups={monthGroups(hovered, inputs)}
           buffer={buffer}
           currency={currency}
         />
@@ -590,7 +590,7 @@ function costNamesAt(inputs: CalculatorInputs, month: number): string[] {
  * The month's movements under the same headings and labels as "Where the
  * money goes" — `flowGroups` reads a month's flows as it reads a year's.
  */
-function monthGroups(point: MonthPoint, inputs: CalculatorInputs, sim: SimulationResult): FlowGroup[] {
+function monthGroups(point: MonthPoint, inputs: CalculatorInputs): FlowGroup[] {
   const flows: FlowTotals = {
     returns: point.returns,
     certificateInterest: point.certificateInterest,
@@ -607,7 +607,6 @@ function monthGroups(point: MonthPoint, inputs: CalculatorInputs, sim: Simulatio
   return flowGroups(flows, {
     vehicle: inputs.savingsVehicle ?? "fund",
     kind: purchaseOf(inputs).kind,
-    hasLoan: !!sim.loan && sim.loan.amount > 0,
   });
 }
 
